@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        /* Estilos para reporte de deudas */
+        .debt-table { width: 100%; border-collapse: collapse; }
+        .debt-table th { background: #333; color: white; padding: 8px; }
+        .debt-table td { padding: 6px; border-bottom: 1px solid #ddd; }
+        .debt-row:hover { background: #f5f5f5; }
+        .debt-amount { color: red; font-weight: bold; }
+        .month-badge {
+            display: inline-block;
+            background: #ffcccc;
+            padding: 2px 6px;
+            margin: 2px;
+            border-radius: 3px;
+            font-size: 0.8em;
+        }
+    </style>
+</head>
+<body>
+    <h1>{{ title }}</h1>
+    <p><strong>Período:</strong> {{ cutoff_date }} al {{ report_date }}</p>
+    
+    <table class="debt-table">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Cliente</th>
+                <th>Dirección</th>
+                <th>Zona</th>
+                <th>Meses Adeudados</th>
+                <th>Total Deuda</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for customer in customers %}
+            <tr class="debt-row">
+                <td>{{ forloop.counter }}</td>
+                <td>{{ customer.name }}</td>
+                <td>{{ customer.address }}</td>
+                <td>{{ customer.zone }}</td>
+                <td>
+                    {% for month in customer.months_list %}
+                    <span class="month-badge">{{ month }}</span>
+                    {% endfor %}
+                </td>
+                <td class="debt-amount">S/ {{ customer.total_debt|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

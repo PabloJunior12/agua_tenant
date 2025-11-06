@@ -1,0 +1,253 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Recibo de Agua</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+    <style>
+        @page {
+            size: A5 portrait;
+            margin: 1rem;
+
+        }
+
+        body {
+            margin: 5px;
+            /* background-color: rgb(233, 233, 241); */
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            color: #000;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 2px solid #000;
+        }
+
+        img {
+            width: 140px;
+        }
+
+        h3 {
+            background: rgb(73, 73, 173);
+            color: #fff;
+            font-weight: bold;
+            padding: 3px;
+            font-size: 10px;
+        }
+
+        .customer {
+
+            font-size: 10px;
+
+        }
+
+        .codigo {
+            text-align: center;
+        }
+
+        .codigo span {
+
+            border: 0.7px solid;
+            padding: 9px;
+            font-size: 15px;
+            font-weight: bolder;
+
+        }
+
+        .header-alert {
+            display: flex;
+            align-items: center;
+            /* Centra verticalmente */
+            justify-content: flex-start;
+            /* Imagen izquierda, texto al lado */
+            gap: 10px;
+            /* Espacio entre imagen y texto */
+        }
+
+        .img-sad {
+            width: 120px;
+            /* Ajusta tamaño según necesites */
+            height: auto;
+        }
+
+        .alert-text {
+            font-size: 14px;
+            font-weight: bold;
+            color: red;
+            text-transform: uppercase;
+        }
+
+        table {
+            font-size: 9px;
+        }
+    </style>
+</head>
+
+<body>
+    {% for ctx in readings_context %}
+    {% with reading=ctx.reading grouped=ctx.grouped_debts total_previous=ctx.total_previous_debt total_general=ctx.total_general %}
+
+    <!-- Cabecera -->
+    <div class="row">
+        <div class="col">
+           <img src="{% static 'images/logo.jpeg' %}" alt="Logo" class="mb-4">
+        </div>
+        <div class="col">
+            <div class="codigo">
+                <span>Recibo N° {{ reading.id }}</span>
+            </div>
+        </div>
+
+        <div class="col">
+            <div class="d-flex justify-content-end">
+                <div class="d-flex flex-column text-center customer">
+                    <span><strong>{{ company.name }}</strong></span>
+                    <span>{{ company.address | lower }}</span>
+                    <span>RUC: {{ company.ruc }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex flex-column customer">
+        <span><strong>{{ reading.customer.full_name }}</strong></span>
+        <span><strong>DNI/RUC:</strong>{{ reading.customer.number }}</span>
+        <span><strong>Dirección:</strong>{{ reading.customer.address }}</span>
+        <span><strong>Horario de Suministro:</strong> DE 06:00 AM A 10:00 PM</span>
+    </div>
+
+    <!-- Sección datos -->
+    <div class="row mt-3">
+        <div class="col">
+            <h3 class="text-center text-uppercase">Datos de facturación</h3>
+            <table class="table table-sm">
+                <tr>
+                    <td><strong>Categoría:</strong></td>
+                    <td>{{ reading.customer.category.name }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Servicio:</strong></td>
+                    <td>Agua y Desagüe</td>
+                </tr>
+                <tr>
+                    <td><strong>Tipo De Facturación:</strong></td>
+                    <td>Asignación de consumo</td>
+                </tr>
+                <tr>
+                    <td><strong>Medidor:</strong></td>
+                    <td>{{ reading.customer.meter.code }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Lectura Actual:</strong></td>
+                    <td>{{ reading.current_reading }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Lectura Anterior:</strong></td>
+                    <td>{{ reading.previous_reading }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Consumo:</strong></td>
+                    <td>{{ reading.consumption }}</td>
+                </tr>
+            </table>
+
+            <h3 class="text-center text-uppercase">Deudas anteriores</h3>
+            <div class="me-3">
+                {% if grouped %}
+                <table class="table table-sm">
+                    {% for d in grouped %}
+                    <tr>
+                        <td>{{ d.from_month }} - {{ d.to_month }} {{ d.year }}</td>
+                        <td class="text-end">{{ d.total }}</td>
+                    </tr>
+                    {% endfor %}
+                    <tr>
+                        <th>TOTAL DEUDA</th>
+                        <td class="text-end">{{ total_previous }}</td>
+                    </tr>
+                </table>
+                {% endif %}
+
+                {% if total_previous > 0 %}
+                    <div class="header-alert">
+                        <img src="{% static 'images/sad.png' %}" alt="Logo" class="img-sad">
+                        <span class="alert-text">AFECTO A CORTE</span>
+                    </div>
+                {% else %}
+                    <div class="header-alert">
+                        <img src="{% static 'images/happy.png' %}" alt="Logo" class="img-sad">
+                        <span class="alert-text">SIN DEUDAS</span>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="col">
+            <h3 class="text-center text-uppercase">Detalle de facturación</h3>
+            <table class="table table-sm">
+                <tr>
+                    <th>Servicio de agua</th>
+                    <td class="text-end">{{ reading.total_water }}</td>
+                </tr>
+                <tr>
+                    <th>Servicio de alcantarillado</th>
+                    <td class="text-end">{{ reading.total_sewer }}</td>
+                </tr>
+                <tr>
+                    <th>Mantenimiento</th>
+                    <td class="text-end">0.00</td>
+                </tr>
+                <tr>
+                    <th>Cargo fijo</th>
+                    <td class="text-end">{{ reading.total_fixed_charge }}</td>
+                </tr>
+                <tr>
+                    <th>Total del mes</th>
+                    <td class="text-end">{{ reading.total_amount }}</td>
+                </tr>
+                <tr>
+                    <th>Saldo deuda anterior</th>
+                    <td class="text-end">{{ total_previous }}</td>
+                </tr>
+                <tr>
+                    <th>TOTAL</th>
+                    <td class="text-end">{{ total_general }}</td>
+                </tr>
+            </table>
+
+            <h3 class="text-center text-uppercase">Información de pago</h3>
+            <table class="table table-sm">
+                <tr>
+                    <th>Fecha de Emisión</th>
+                    <td class="text-end">{{ reading.date_of_issue|date:"d-m-Y" }}</td>
+                </tr>
+                <tr>
+                    <th>Fecha de Vencimiento</th>
+                    <td class="text-end">{{ reading.date_of_due|date:"d-m-Y" }}</td>
+                </tr>
+                <tr>
+                    <th>Mes Facturado</th>
+                    <td class="text-end">{{ reading.period|date:"F - Y"|capfirst }}</td>
+                </tr>
+                <tr>
+                    <th>TOTAL A PAGAR</th>
+                    <td class="text-end">{{ total_general }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    {% if not forloop.last %}
+    <div style="page-break-after: always;"></div>
+    {% endif %}
+
+    {% endwith %}
+    {% endfor %}
+</body>
+
+</html>

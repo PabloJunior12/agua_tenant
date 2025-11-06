@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{{ title }}</title>
+    <style>
+        @page { size: A5 landscape; margin: 1cm; }
+        body { font-family: Arial; font-size: 10px; }
+        h1 { text-align: center; font-size: 14px; }
+        .header-info { display: flex; justify-content: space-between; margin-bottom: 10px; }
+        .summary { 
+            background: #f5f5f5; 
+            padding: 8px; 
+            margin-bottom: 10px;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 5px;
+        }
+        .summary-item { text-align: center; }
+        .summary-value { font-weight: bold; }
+        .positive { color: green; }
+        .negative { color: red; }
+        table { 
+            width: 100%; 
+            border-collapse: collapse;
+            margin-bottom: 15px;
+            page-break-inside: avoid;
+        }
+        th { background: #e0e0e0; padding: 5px; text-align: left; }
+        td { padding: 5px; border-bottom: 1px solid #ddd; }
+        .customer-row { background: #f9f9f9; }
+    </style>
+</head>
+<body>
+    <h1>{{ title }}</h1>
+    <div class="header-info">
+        <div>Fecha: {{ report_date }}</div>
+        <div>Total clientes: {{ totals.customer_count }}</div>
+    </div>
+    
+    <!-- Resumen General -->
+    <div class="summary">
+        <div class="summary-item">
+            <div>Total Pagado</div>
+            <div class="summary-value positive">S/ {{ totals.paid|floatformat:2 }}</div>
+        </div>
+        <div class="summary-item">
+            <div>Total Pendiente</div>
+            <div class="summary-value">S/ {{ totals.pending|floatformat:2 }}</div>
+        </div>
+        <div class="summary-item">
+            <div>Total Vencido</div>
+            <div class="summary-value negative">S/ {{ totals.overdue|floatformat:2 }}</div>
+        </div>
+        <div class="summary-item">
+            <div>Deuda Total</div>
+            <div class="summary-value negative">S/ {{ totals.total_debt|floatformat:2 }}</div>
+        </div>
+    </div>
+    
+    <!-- Detalle por Cliente -->
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Cliente</th>
+                <th>Medidor</th>
+                <th>Pagado</th>
+                <th>Pendiente</th>
+                <th>Vencido</th>
+                <th>Deuda Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for customer in customers %}
+            <tr class="customer-row">
+                <td>{{ forloop.counter }}</td>
+                <td>
+                    <strong>{{ customer.full_name }}</strong><br>
+                    {{ customer.number }}<br>
+                    {{ customer.address}}
+                </td>
+                <td>{{ customer.meter_code|default:"-" }}</td>
+                <td class="positive">S/ {{ customer.paid|floatformat:2 }}</td>
+                <td>S/ {{ customer.pending|floatformat:2 }}</td>
+                <td class="negative">S/ {{ customer.overdue|floatformat:2 }}</td>
+                <td class="negative">S/ {{ customer.total_debt|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

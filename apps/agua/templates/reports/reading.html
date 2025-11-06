@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{{ title }}</title>
+
+</head>
+<body>
+    <h1>{{ title }}</h1>
+    
+    <div class="header-info">
+        <div>Generado: {{ report_date }}</div>
+        <!-- {% if start_date or end_date %}
+        <div>Periodo: {{ start_date|default:"Inicio" }} al {{ end_date|default:"Hoy" }}</div>
+        {% endif %} -->
+    </div>
+    
+    <div class="summary">
+        <div><strong>Lecturas:</strong> {{ readings|length }}</div>
+        <div><strong>Consumo:</strong> {{ total_consumption }} m³</div>
+        <div><strong>Total:</strong> S/ {{ total_amount|floatformat:2 }}</div>
+    </div>
+    
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Correl.</th>
+                <th>Cliente</th>
+                <th>Lectura</th>
+                <th>Consumido</th>
+                <th>Estado</th>
+                <th>Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for reading in readings %}
+            <tr>
+                <td>{{ forloop.counter }}</td>
+                <td>{{ reading.correlative }}</td>
+                <td>{{ reading.customer.full_name }}</td>
+                <td>{{ reading.reading_date }}</td>
+                <td>{{ reading.consumption }}</td>
+                <td class="status-{{ reading.payment_status }}">
+                    {% if reading.payment_status == 'paid' %}
+                        Pagado
+                    {% elif reading.payment_status == 'pending' %}
+                        Pendiente
+                    {% else %}
+                        Vencido ({{ reading.days_overdue }} días)
+                    {% endif %}
+                </td>
+                <td>{{ reading.total_amount }}</td>
+            </tr>
+            {% endfor %}
+            <tr class="total-row">
+                <td colspan="4">TOTAL</td>
+                <td></td>
+                <td></td>
+                <td>S/ {{ total_amount}}</td>
+            </tr>
+        </tbody>
+    </table>
+
+</body>
+</html>

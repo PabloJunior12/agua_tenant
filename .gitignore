@@ -1,0 +1,30 @@
+# Archivos de Python
+*.pyc
+__pycache__/
+
+# Entorno virtual
+env/
+venv/
+
+
+# Configuración de Django (ignorar settings.py)
+settings.py
+
+
+# Archivos de configuración del editor
+.vscode/
+.idea/
+
+# Archivos de base de datos locales
+db.sqlite3
+
+# Archivos de logs
+*.log
+
+# Archivos estáticos compilados
+staticfiles/
+media/
+
+# Ignorar migraciones
+*/migrations/*
+!*/migrations/__init__.py

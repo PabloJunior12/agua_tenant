@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @page {
+            size: A4;
+            margin: .5cm;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+        }
+
+        h1,
+        h2,
+        h3 {
+            margin: 0;
+            padding: 0;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .title {
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .subtitle {
+            font-size: 12px;
+            color: #555;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 10px;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 6px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f5f5f5;
+        }
+
+        .right {
+            text-align: right;
+        }
+
+        .total {
+            font-weight: bold;
+            background-color: #f0f0f0;
+        }
+
+        .cancelled {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Cabecera -->
+    <div class="header">
+        <div class="title">{{ reporte_tipo }}</div>
+        <div class="subtitle">
+            Caja Nº {{ cashbox.id }} - Usuario: {{ cashbox.user.username }}
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Código Factura</th>
+                <th>Fecha</th>
+                <th>Cliente</th>
+                <th>Dirección</th>
+                <th>Período(s)</th>
+                <th class="right">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for concepto in conceptos %}
+            <!-- Fila de encabezado para el concepto -->
+            <tr style="background:#f0f0f0; font-weight:bold;">
+                <td colspan="6">{{ concepto.concepto }}</td>
+            </tr>
+
+            <!-- Facturas de este concepto -->
+            {% for factura in concepto.facturas %}
+                {% if factura.total > 0 %}
+                    <tr>
+                        <td>{{ factura.code }}</td>
+                        <td>{{ factura.date|date:"d/m/Y" }}</td>
+                        <td>{{ factura.cliente }}</td>
+                        <td>{{ factura.direccion }}</td>
+                        <td>
+                            {% if factura.periodo %}
+                                {{ factura.periodo }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td class="right">{{ factura.total|floatformat:2 }}</td>
+                    </tr>
+                {% endif %}
+            {% endfor %}
+
+            <!-- Total del concepto -->
+            <tr class="total" style="font-weight:bold;">
+                <td colspan="5" class="right">Sub Total</td>
+                <td class="right">{{ concepto.total|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h3 style="text-align:right; margin-top:20px;">
+        <!-- Total General: S/ {{ report.closing_balance }} -->
+        Total S/ {{ total_general|floatformat:2 }}
+    </h3>
+
+    <div style="display: flex; justify-content: space-between;">
+        <div style="width: 48%;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Método</th>
+                        <th class="right">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for metodo in metodos %}
+                    <tr>
+                        <td>{{ metodo.metodo }}</td>
+                        <td class="right">{{ metodo.total|floatformat:2 }}</td>
+                    </tr>
+                    {% endfor %}
+                    <tr class="total">
+                        <td>Total General</td>
+                        <td class="right">{{ total_general|floatformat:2 }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div style="width: 48%;">
+            <table>
+                <tr>
+                    <th>Saldo inicial</th>
+                    <td>S/ {{ report.opening_balance }}</td>
+                </tr>
+                <tr>
+                    <th>Total Ingresos</th>
+                    <td>S/ {{ report.total_incomes }}</td>
+                </tr>
+                <tr>
+                    <th>Total Egresos</th>
+                    <td>S/ {{ report.total_outcomes}}</td>
+                </tr>
+                <tr class="totals">
+                    <th>Saldo final</th>
+                    <td>S/ {{ report.closing_balance }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- Total general -->
+
+
+
+</body>
+
+</html>

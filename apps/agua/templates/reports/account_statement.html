@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial; font-size: 12px; }
+        .header { text-align: center; margin-bottom: 20px; }
+        .customer-info { margin-bottom: 15px; }
+        .transaction-table { width: 100%; border-collapse: collapse; }
+        .transaction-table th { 
+            background: #333; 
+            color: white; 
+            padding: 8px;
+            text-align: left;
+        }
+        .transaction-table td { 
+            padding: 6px; 
+            border-bottom: 1px solid #ddd;
+            vertical-align: top;
+        }
+        .debit { color: red; }
+        .credit { color: green; }
+        .summary { 
+            margin-top: 20px;
+            border-top: 2px solid #333;
+            padding-top: 10px;
+        }
+        .summary-item { margin-bottom: 5px; }
+        .status-pagado { color: green; }
+        .status-pendiente { color: orange; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{ title }}</h1>
+        <p>Período: {{ period }}</p>
+    </div>
+    
+    <div class="customer-info">
+        <p><strong>Cliente:</strong> {{ customer.full_name }}</p>
+        <p><strong>Documento:</strong> {{ customer.number }}</p>
+        <p><strong>Dirección:</strong> {{ customer.address }}</p>
+        <p><strong>Medidor:</strong> {{ customer.meter_code|default:"No especificado" }}</p>
+    </div>
+    
+    <table class="transaction-table">
+        <thead>
+            <tr>
+                <th>Fecha</th>
+                <th>Descripción</th>
+                <th>Metodo de pago</th>
+                <th>Referencia</th>
+                <th>Monto</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in payments %}
+            <tr>
+                <td>{{ item.invoice.date_of_issue|date:"d/m/Y" }}</td>
+                <td>
+                    {% if item.invoice.invoice_type == 'receipt' %}
+                        Recibo
+                    {% else %}
+                        Servicio
+                    {% endif %}
+                   
+                </td>
+                <td>{{ item.payment_method.description }}</td>
+                <td>{{ item.invoice.correlative }}</td>
+                <td>S/ {{ item.total|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    
+    <div class="summary">
+        <h3>Resumen</h3>
+        <div class="summary-item"><strong>Total pagado:</strong> S/ {{ total_paid|floatformat:2 }}</div>
+    </div>
+</body>
+</html>

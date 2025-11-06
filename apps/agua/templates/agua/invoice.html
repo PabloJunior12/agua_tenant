@@ -1,0 +1,225 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Recibo de Pago</title>
+
+    <style>
+        @page {
+            size: 80mm 180mm;
+            margin: 4.5mm;
+        }
+
+        body {
+            font-size: 9px;
+            line-height: 1.2;
+            margin: 0;
+            padding: 0;
+        }
+        .header {
+            text-align: center;
+        }
+
+        .logo {
+            max-width: 150px;
+            height: auto;
+            margin-bottom: 5px;
+        }
+
+        .company-info h2 {
+            margin: 0;
+            font-size: 14px;
+        }
+
+        .company-info p {
+            margin: 0;
+            font-size: 11px;
+        }
+
+        hr {
+            border: none;
+            border-top: 1px dashed #555;
+            margin: 4px 0;
+        }
+
+        .invoice-info,
+        .customer-info {
+            font-size: 11px;
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 5px;
+        }
+
+        .table th, .table td {
+            padding: 1px 0; /* Menos padding */
+        }
+
+        .table th {
+            border-bottom: 1px solid #000;
+            font-size: 11px;
+            text-align: left;
+        }
+
+        .table td {
+            font-size: 11px;
+        }
+
+        .total-box {
+            border-top: 1px solid #000;
+            margin-top: 5px;
+            padding-top: 4px;
+            font-size: 12px;
+            text-align: right;
+            font-weight: bold;
+        }
+
+        .footer {
+            margin-top: 2rem;
+            text-align: center;
+            font-size: 9px;
+        }
+
+        .watermark {
+            position: fixed;
+            top: 40%;
+            left: 10%;
+            width: 80%;
+            text-align: center;
+            font-size: 40px;
+            font-weight: bold;
+            color: rgb(0, 0, 0);
+            opacity: 0.2;
+            transform: rotate(-30deg);
+            z-index: 9999;
+        }
+    </style>
+
+</head>
+
+<body>
+
+    {% if invoice.status == "cancelled" %}
+    <div class="watermark">ANULADO</div>
+    {% endif %}
+
+    <div class="container">
+
+        <!-- Encabezado -->
+        <div class="header">
+
+            <img src="{% static 'images/logo.jpeg' %}" class="logo" alt="Logo">
+
+            <div class="company-info">
+                <h2>Municipalidad Distrital de Pangoa</h2>
+                <p>RUC: 20146673776</p>
+            </div>
+        </div>
+
+        <hr>
+
+        <!-- Datos de factura -->
+        <div class="invoice-info">
+            <p><strong>Recibo Nº:</strong> {{ invoice.code }}</p>
+            <p><strong>Fecha:</strong> {{ invoice.date|date:"d/m/Y" }}</p>
+        </div>
+
+        <hr>
+
+        <!-- Datos del cliente -->
+        <div class="customer-info">
+            {% if invoice.customer.codigo == "00000" %}
+                <!-- Si es un pagador externo -->
+                <p><strong>Cliente:</strong> {{ invoice.name_optional|default:"(Sin nombre)" }}</p>
+                <p><strong>Documento:</strong> {{ invoice.number_optional|default:"(Sin documento)" }}</p>
+            {% else %}
+                <!-- Si es un cliente registrado -->
+                <p><strong>Cliente:</strong> {{ invoice.customer.full_name }}</p>
+                <p><strong>Dirección:</strong> {{ invoice.customer.address|default:"(Sin dirección)" }}</p>
+                <p><strong>Documento:</strong> {{ invoice.customer.number|default:"(Sin documento)" }}</p>
+            {% endif %}
+        </div>
+
+        <hr>
+
+        <!-- Detalle de pagos -->
+         {% if payments %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Periodo</th>
+                    <th style="text-align:right;">Total (S/)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in payments %}
+                <tr>
+                    <td>{{ item.debt.period|date:"F Y"|capfirst }}</td>
+                    <td style="text-align:right;">
+                        {% if invoice.status == "cancelled" %}
+                        0.00
+                        {% else %}
+                       {{ item.total|stringformat:".2f" }}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+        {% if concepts %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th style="width: 20%;">Codigo</th>
+                    <th style="width: 50%;">Concepto</th>
+                    <th style="width: 30%; text-align:right;">Total (S/)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in concepts %}
+                <tr>
+                    <td>{{ item.concept.code }}</td>
+                    <td>{{ item.concept.name }}</td>
+                    <td style="text-align:right;">
+                        {% if invoice.status == "cancelled" %}
+                        0.00
+                        {% else %}
+                        {{ item.total|stringformat:".2f" }}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+
+        <!-- Total -->
+        <div class="total-box">
+
+            <p><strong>Total Pagado:</strong> S/
+
+                {% if invoice.status == "cancelled" %}
+                0.00
+                {% else %}
+                {{ invoice.total|stringformat:".2f" }}
+                {% endif %}
+
+            </p>
+        </div>
+
+        <!-- Pie -->
+        <div class="footer">
+            <p>Gracias por su pago</p>
+            <p>Este documento es válido como comprobante</p>
+        </div>
+    </div>
+</body>
+
+</html>

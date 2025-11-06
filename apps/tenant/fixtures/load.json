@@ -1,0 +1,122 @@
+[
+  {
+    "model": "user.module",
+    "pk": 1,
+    "fields": {
+      "name": "Dashboard",
+      "code": "dashboard",
+      "path": "/dashboard",
+      "icon": "fa-solid fa-desktop",
+      "parent": null
+    }
+  },
+  {
+    "model": "user.module",
+    "pk": 2,
+    "fields": {
+      "name": "Usuarios",
+      "code": "user",
+      "path": "/dashboard/user",
+      "icon": "fa-solid fa-user",
+      "parent": null
+    }
+  },
+  {
+    "model": "user.module",
+    "pk": 3,
+    "fields": {
+      "name": "Clientes",
+      "code": "customer",
+      "path": "/dashboard/customer",
+      "icon": "fa-solid fa-users",
+      "parent": null
+    }
+  },
+  {
+    "model": "user.module",
+    "pk": 4,
+    "fields": {
+      "name": "Generar deudas",
+      "code": "debt-generation",
+      "path": "/dashboard/debt-generation",
+      "icon": "fa-regular fa-address-book",
+      "parent": null
+    }
+  },
+  {
+    "model": "user.module",
+    "pk": 5,
+    "fields": {
+      "name": "Caja",
+      "code": "caja",
+      "icon": "fa-solid fa-cash-register",
+      "parent": null
+    }
+  },
+  {
+    "model": "user.module",
+    "pk": 6,
+    "fields": {
+      "name": "Cobranzas",
+      "code": "invoice",
+      "path": "/dashboard/invoice",
+      "icon": "fa-solid fa-file-invoice-dollar",
+      "parent": 5
+    }
+  },
+  {
+    "model": "user.module",
+    "pk": 7,
+    "fields": {
+      "name": "Reporte",
+      "code": "cash-box",
+      "path": "/dashboard/cash-box",
+      "icon": "fa-solid fa-chart-line",
+      "parent": 5
+    }
+  },
+  {
+    "model": "user.module",
+    "pk": 8,
+    "fields": {
+      "name": "Categorías",
+      "code": "category",
+      "path": "/dashboard/category",
+      "icon": "fa-solid fa-layer-group",
+      "parent": null
+    }
+  },
+  {
+    "model": "user.module",
+    "pk": 9,
+    "fields": {
+      "name": "Catálogo",
+      "code": "catalogo",
+      "path": "/dashboard/catalogo",
+      "icon": "fa-brands fa-stack-exchange",
+      "parent": null
+    }
+  },
+  {
+    "model": "user.module",
+    "pk": 10,
+    "fields": {
+      "name": "Vías / Calles",
+      "code": "ubication",
+      "path": "/dashboard/ubication",
+      "icon": "fa-solid fa-location-dot",
+      "parent": null
+    }
+  },
+  {
+    "model": "user.module",
+    "pk": 11,
+    "fields": {
+      "name": "Egresos",
+      "code": "egreso",
+      "path": "/dashboard/egreso",
+      "icon": "fa-solid fa-chart-line",
+      "parent": 5
+    }
+  }
+]

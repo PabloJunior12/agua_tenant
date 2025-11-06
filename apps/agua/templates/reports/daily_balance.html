@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            font-size: 12px;
+            margin: 30px;
+            color: #333;
+        }
+
+        h1, h2, h3 {
+            text-align: center;
+            margin: 5px 0;
+        }
+
+        .header, .footer {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        th, td {
+            padding: 8px;
+            border: 1px solid #999;
+            text-align: left;
+        }
+
+        .summary {
+            margin-top: 30px;
+        }
+
+        .summary p {
+            font-size: 14px;
+        }
+
+        .totals {
+            background-color: #f0f0f0;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>Reporte Diario de Caja</h1>
+        {% if report_type == 'daily' %}
+
+           <p>Fecha: {{ date }}</p>
+
+        {% else %}
+
+           <p>Fecha: {{ date }} a {{ end_date }}</p>
+
+        {% endif %}
+
+       
+        <p>Referencia: {{ reference_number }}</p>
+    </div>
+
+    <h3>Ingresos por Método de Pago</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Concepto</th>
+                <th>Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in income_by_concept %}
+            <tr>
+                <td>{{ item.payment_method__description }}</td>
+                <td>S/ {{ item.total|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h3>Detalle de Pagos</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Cliente</th>
+                <th>N° Factura</th>
+                <th>Fecha</th>
+                <th>Método</th>
+                <th>Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for payment in payments %}
+            <tr>
+                <td>{{ payment.invoice.customer.full_name }}</td>
+                <td>{{ payment.invoice.correlative }}</td>
+                <td>{{ payment.invoice.date_of_issue }}</td>
+                <td>{{ payment.payment_method.description }}</td>
+                <td>S/ {{ payment.total|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="summary">
+        <p><strong>Saldo Inicial:</strong> S/ {{ opening_balance|floatformat:2 }}</p>
+        <p><strong>Total Ingresos:</strong> S/ {{ total_income|floatformat:2 }}</p>
+        <p><strong>Saldo Calculado:</strong> S/ {{ calculated_balance|floatformat:2 }}</p>
+        <p><strong>Saldo Final:</strong> S/ {{ final_balance|floatformat:2 }}</p>
+      
+    </div>
+
+</body>
+</html>

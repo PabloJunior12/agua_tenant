@@ -1,0 +1,247 @@
+@page {
+    size: A4;
+    margin: 2rem;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    font-size: 12px;
+
+}
+
+.container {
+    width: 100%;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    /* border-bottom: 2px solid #0074c9; */
+    text-align: center;
+    margin-bottom: 10px;
+}
+
+/* Logo de la empresa */
+.logo {
+    flex: 1;
+}
+
+.content-logo {
+    width: 200px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.content-logo img {
+    width: 150px;
+}
+
+.content-logo p {
+    margin: 2px 0;
+    font-size: 11px;
+}
+
+/* Información del cliente */
+.customer-info {
+    text-transform: uppercase;
+    flex: 1;
+    font-size: 10px;
+    text-align: left;
+
+}
+
+/* Caja de suministro */
+.box {
+    display: flex;
+    justify-content: end;
+    flex: 1.3;
+}
+
+.content-box {
+    width: 130px;
+}
+
+.supply-box {
+    background-color: yellow;
+    padding: 5px;
+    font-weight: bold;
+    text-align: center;
+    border-radius: 3px;
+    font-size: 14px;
+}
+
+/* Caja de recibo */
+.receipt-box {
+    border: 1px solid gray;
+    padding: 5px;
+    border-radius: 5px;
+    text-align: center;
+}
+
+.receipt-box a {
+    text-decoration: none;
+    color: #0074c9;
+    font-weight: bold;
+}
+
+.detalle {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+.box-detalle {
+    width: 48%;
+    /* Para que entren dos columnas */
+    border: 1.3px solid #000000;
+    margin-bottom: 10px;
+    /* Espacio entre filas */
+    margin-right: 1.7%;
+    /* Espacio entre columnas */
+}
+
+.box-detalle:nth-child(2n) {
+    margin-right: 0;
+}
+
+.info-general {
+    width: 100%;
+    font-size: 11.5px;
+}
+
+.title {
+    background-color: #000000;
+    color: white;
+    text-align: center;
+    font-weight: bold;
+    padding: 6px;
+    margin-bottom: 8px;
+}
+
+.row {
+    display: flex;
+    flex-wrap: wrap;
+    padding: 5px;
+
+}
+
+.col-2{
+    flex: 2;
+}
+
+.col {
+    flex: 1;
+    /* min-width: 150px; */
+    display: flex;
+    flex-direction: column;
+    margin-right: 10px;
+}
+
+.label {
+    font-weight: bold;
+    text-transform: uppercase;
+    color: #345497;
+}
+
+.value {
+    margin-top: 5px;
+}
+
+.img-deuda{
+    width: 100%;
+}
+
+.d-flex {
+    display: flex;
+}
+
+.justify-content-between {
+    justify-content: space-between;
+}
+
+.justify-content-end {
+    justify-content: end;
+}
+
+.align-items-center{
+    align-items: center;
+}
+
+.text-total{    
+
+    font-weight: bold;
+    text-transform: uppercase;
+    font-size: 2em;
+
+}
+
+.billing-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+    font-size: 12px;
+}
+
+.billing-table th, .billing-table td {
+    border: 1px solid black;
+    padding: 5px;
+    text-align: center;
+}
+
+.billing-table th {
+    background-color: #f2f2f2;
+}
+
+.billing-table tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+
+/* PADDING */
+
+.pl-5{
+    padding-left: 5px;
+}
+
+.pr-5{
+    padding-right: 5px;
+}
+
+.pt-5{
+    padding-top: 5px;
+}
+
+.pt-10{
+    padding-top: 10px;
+}
+
+.pt-20{
+    padding-top: 20px;
+}
+
+
+.pt-30{
+    padding-top: 30px;
+}
+
+.pb-5{
+    padding-bottom: 5px;
+}
+
+.pb-10{
+    padding-bottom: 10px;
+}
+
+.p-5{
+    padding: 5px;
+}
+
+/* MARGIN */
+
+.mt-5 {
+    margin-top: 5px;
+}
+
+.mb-5 {
+    margin-bottom: 5px;
+}

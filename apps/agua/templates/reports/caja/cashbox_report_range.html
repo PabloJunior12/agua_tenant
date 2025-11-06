@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Reporte de Caja</title>
+    <style>
+        @page { size: A4; margin: .5cm; }
+        body { font-family: Arial, sans-serif; font-size: 12px; margin: 20px; }
+        h1 { text-align: center; font-size: 15px; margin-bottom: 20px; }
+        p { margin: 4px 0; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #000; padding: 6px; text-align: center; }
+        th { background-color: #f2f2f2; }
+        .total td { font-weight: bold; background-color: #ddd; }
+        .section-title { margin-top: 30px; font-weight: bold; font-size: 14px; }
+    </style>
+</head>
+
+<body>
+    <h1>PAGOS DEL {{ start_date | date:"d-m-Y" }} AL {{ end_date | date:"d-m-Y" }} </h1>
+    <p><strong>Caja:</strong> {{ cashbox.id }} - {{ cashbox.user.username }}</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Método de Pago</th>
+                <th>Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for method, total in by_method.items %}
+            <tr>
+                <td>{{ method | title}}</td>
+                <td>{{ total }}</td>
+            </tr>
+            {% endfor %}
+            <tr class="total">
+                <td>Total General</td>
+                <td>S/ {{ total }}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <table>
+        <thead>
+            <tr>
+                <th>N°</th>
+                <th>Fecha</th>
+                <th>Factura</th>
+                <th>Cliente</th>
+                <th>Dirección</th>
+                <th>Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for inv in invoices %}
+            <tr>
+                <td>{{ forloop.counter }}</td>
+                <td>{{ inv.date | date:"d-m-Y" }}</td>
+                <td>{{ inv.code }}</td>
+                <td>{{ inv.customer.full_name }}</td>
+                <td>{{ inv.customer.address }}</td>
+                <td>S/ {{ inv.total }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+</body>
+
+</html>

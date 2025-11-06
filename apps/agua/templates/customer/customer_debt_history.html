@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Historial de Deudas - {{ customer.full_name }}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 1rem;
+        }
+
+        body {
+            font-family: 'DejaVu Sans', sans-serif;
+            font-size: 12px;
+            color: #333;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #444;
+            padding-bottom: 5px;
+        }
+
+        h1 {
+            font-size: 18px;
+            margin: 0;
+            text-transform: uppercase;
+        }
+
+        h2 {
+            font-size: 14px;
+            margin: 4px 0 0 0;
+            color: #555;
+        }
+
+        h3 {
+            font-size: 13px;
+            margin-top: 15px;
+            color: #333;
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 3px;
+        }
+
+        .year-section {
+            page-break-inside: avoid;
+        }
+
+        .grid {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+          
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 8px;
+            font-size: 11px;
+        }
+
+        th,
+        td {
+            border: 1px solid #bbb;
+            padding: 6px 4px;
+            text-align: center;
+        }
+
+        th {
+            background-color: #f2f2f2;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+
+        tbody tr:nth-child(even) {
+            background-color: #fafafa;
+        }
+
+        .status-paid {
+            color: #0a7c25;
+            font-weight: bold;
+        }
+
+        .status-pending {
+            color: #b30000;
+            font-weight: bold;
+        }
+
+        .totals {
+            margin-top: 15px;
+            font-size: 13px;
+        }
+
+        .totals table td {
+            border: none;
+        }
+
+        .right {
+            text-align: right;
+        }
+
+        .summary {
+            width: 60%;
+            margin-left: auto;
+            margin-top: 20px;
+            border: 1px solid #bbb;
+            border-collapse: collapse;
+        }
+
+        .summary td {
+            padding: 6px;
+            font-size: 12px;
+        }
+
+        .summary tr td:first-child {
+            text-align: left;
+            background-color: #f9f9f9;
+            font-weight: bold;
+        }
+
+        .summary tr td:last-child {
+            text-align: right;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1>Historial de Pagos</h1>
+        <h2>{{ customer.full_name }}</h2>
+    </header>
+
+    <section class="customer-info">
+        <p>
+            <strong>DNI/RUC:</strong> {{ customer.number|default:"-" }}<br>
+            <strong>Dirección:</strong> {{ customer.address|default:"-" }}<br>
+            <strong>Categoría:</strong> {{ customer.category.name }}<br>
+            <strong>Medidor:</strong> {% if customer.has_meter %}Sí{% else %}No{% endif %}
+        </p>
+    </section>
+
+    <div class="grid">
+        {% for year, debts in debts_by_year.items %}
+        <div class="year-section">
+            <h3>Año {{ year }}</h3>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Periodo</th>
+                        <th class="right">Monto</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in debts %}
+                    <tr>
+                       <td>{{ d.period|date:"b - Y"|capfirst }}</td>
+
+                        <td class="right">S/ {{ d.amount|floatformat:2 }}</td>
+                        <td class="{% if d.paid %}status-paid{% else %}status-pending{% endif %}">
+                            {% if d.paid %}PAGADA{% else %}PENDIENTE{% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="4" class="right">Sin registros</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+        </div>
+        {% endfor %}
+    </div>
+
+    <table class="summary">
+        <tr>
+            <td>Total Facturado:</td>
+            <td>S/ {{ total_debt|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td>Total Pagado:</td>
+            <td>S/ {{ total_paid|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td>Total Pendiente:</td>
+            <td>S/ {{ total_pending|floatformat:2 }}</td>
+        </tr>
+    </table>
+
+</body>
+
+</html>
