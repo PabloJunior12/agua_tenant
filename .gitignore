@@ -8,7 +8,7 @@ venv/
 
 
 # Configuración de Django (ignorar settings.py)
-settings.py
+#settings.py
 
 
 # Archivos de configuración del editor
@@ -22,8 +22,8 @@ db.sqlite3
 *.log
 
 # Archivos estáticos compilados
-staticfiles/
-media/
+#staticfiles/
+#media/
 
 # Ignorar migraciones
 */migrations/*
