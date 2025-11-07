@@ -70,12 +70,12 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
 
         try:
             # Validar duplicado de número si no tiene medidor
-            if not has_meter and data.get('number'):
-                if Customer.objects.filter(number=data['number']).exists():
-                    return Response(
-                        {'error': 'Ya existe un cliente con este numero.'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
+            # if not has_meter and data.get('number'):
+            #     if Customer.objects.filter(number=data['number']).exists():
+            #         return Response(
+            #             {'error': 'Ya existe un cliente con este numero.'},
+            #             status=status.HTTP_400_BAD_REQUEST
+            #         )
 
             # Validar medidor antes de guardar el Customer
             if has_meter:

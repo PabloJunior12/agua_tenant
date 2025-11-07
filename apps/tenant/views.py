@@ -14,9 +14,6 @@ class ValidateTenantView(APIView):
 
     def get(self, request, schema_name):
 
-
-        
-
         Tenant = get_tenant_model()
 
         exists = Tenant.objects.filter(schema_name=schema_name).exists()

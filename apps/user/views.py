@@ -19,7 +19,6 @@ class CustomPagination(PageNumberPagination):
     max_page_size = 100  # Tamaño máximo permitido
 
 class LoginView(APIView):
-
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -28,32 +27,32 @@ class LoginView(APIView):
         tenant_name = request.data.get('tenant')
 
         if not username or not password:
-            return Response({"error": "Se requieren usuario y password."}, status=400)
+            return Response({"error": "Se requieren usuario y contraseña."}, status=400)
 
         user = authenticate(request, username=username, password=password)
 
         if user is None:
-            return Response({"error": "Credenciales invalidas."}, status=401)
+            return Response({"error": "Credenciales inválidas."}, status=401)
 
         if not user.is_active:
             return Response({"error": "Cuenta desactivada."}, status=403)
 
-    
+        # 🔒 VALIDACIÓN DE TENANT
         tenant_name = (tenant_name or "").lower().strip()
 
- 
+        # Caso 1: entorno público
         if tenant_name == "public":
             if user.tenant:
                 return Response(
-                    {"error": "Este usuario pertenece a un tenant y no puede acceder al entorno publico."},
+                    {"error": "Este usuario pertenece a un tenant y no puede acceder al entorno público."},
                     status=403
                 )
 
-   
+        # Caso 2: entorno de tenant
         else:
             if not user.tenant:
                 return Response(
-                    {"error": "Este usuario es global y no pertenece a ningun tenant."},
+                    {"error": "Este usuario es global y no pertenece a ningún tenant."},
                     status=403
                 )
 
@@ -63,7 +62,7 @@ class LoginView(APIView):
                     status=403
                 )
 
-   
+        # ✅ Si pasa todas las validaciones, emitir token
         token, _ = Token.objects.get_or_create(user=user)
         permissions = UserPermission.objects.filter(user=user).select_related('module')
 
