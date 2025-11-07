@@ -60,7 +60,6 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
     filter_backends = [DjangoFilterBackend,filters.SearchFilter]
     search_fields = ['codigo', 'full_name', 'number']
 
-    # filtros exactos
     filterset_fields = ['codigo','zona','calle']  
 
     def create(self, request, *args, **kwargs):
