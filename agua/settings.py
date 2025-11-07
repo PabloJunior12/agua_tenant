@@ -20,6 +20,7 @@ SHARED_APPS = [
     'django.contrib.auth',
     'django.contrib.sessions',
     'django.contrib.messages',
+    'django.contrib.staticfiles', 
     'django.contrib.admin', # admin solo en tenant
     'rest_framework',
     'rest_framework.authtoken',
@@ -132,6 +133,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://demo.localhost:4200",
     "http://pangoa.localhost:4200",
     "http://localhost:4200",
+    "http://localhost:4200",
+    "https://ugm.pe"
 ]
 
 CORS_ALLOW_CREDENTIALS = True

@@ -23,45 +23,47 @@ class LoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-
         username = request.data.get('username')
         password = request.data.get('password')
         tenant_name = request.data.get('tenant')
 
         if not username or not password:
-
-            return Response({"error": "Se requieren usuario y contraseña."}, status=400)
+            return Response({"error": "Se requieren usuario y password."}, status=400)
 
         user = authenticate(request, username=username, password=password)
 
         if user is None:
-            return Response({"error": "Credenciales inválidas."}, status=401)
+            return Response({"error": "Credenciales invalidas."}, status=401)
 
         if not user.is_active:
             return Response({"error": "Cuenta desactivada."}, status=403)
 
-        # 🔒 VALIDACIÓN CLAVE
-        if not tenant_name or tenant_name in ("null", "", None):
+    
+        tenant_name = (tenant_name or "").lower().strip()
 
-            if user.tenant is not None:
+ 
+        if tenant_name == "public":
+            if user.tenant:
                 return Response(
-                    {"error": "Este usuario pertenece a un tenant y no puede acceder al entorno público."},
+                    {"error": "Este usuario pertenece a un tenant y no puede acceder al entorno publico."},
                     status=403
                 )
-        else:
 
+   
+        else:
             if not user.tenant:
                 return Response(
-                    {"error": "Este usuario es global y no pertenece a ningún tenant."},
+                    {"error": "Este usuario es global y no pertenece a ningun tenant."},
                     status=403
                 )
 
-            if user.tenant.schema_name != tenant_name.lower():
+            if user.tenant.schema_name != tenant_name:
                 return Response(
                     {"error": f"El usuario no pertenece al tenant '{tenant_name}'."},
                     status=403
                 )
 
+   
         token, _ = Token.objects.get_or_create(user=user)
         permissions = UserPermission.objects.filter(user=user).select_related('module')
 
@@ -76,7 +78,7 @@ class LoginView(APIView):
             "name": user.name,
             "is_admin": user.is_admin,
             "is_staff": user.is_staff,
-            "tenant": user.tenant.id if user.tenant else None,
+            "tenant": user.tenant.schema_name if user.tenant else "public",
             "token": token.key,
             "permissions": permissions_data,
         }

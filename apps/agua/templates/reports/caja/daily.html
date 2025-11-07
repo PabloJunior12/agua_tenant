@@ -80,6 +80,7 @@
         </div>
     </div>
 
+   
     <table>
         <thead>
             <tr>
@@ -93,6 +94,9 @@
         </thead>
         <tbody>
             {% for concepto in conceptos %}
+
+            {% if concepto.total > 0 %}
+
             <!-- Fila de encabezado para el concepto -->
             <tr style="background:#f0f0f0; font-weight:bold;">
                 <td colspan="6">{{ concepto.concepto }}</td>
@@ -123,10 +127,11 @@
                 <td colspan="5" class="right">Sub Total</td>
                 <td class="right">{{ concepto.total|floatformat:2 }}</td>
             </tr>
+            {% endif %}
             {% endfor %}
         </tbody>
     </table>
-
+ 
     <h3 style="text-align:right; margin-top:20px;">
         <!-- Total General: S/ {{ report.closing_balance }} -->
         Total S/ {{ total_general|floatformat:2 }}

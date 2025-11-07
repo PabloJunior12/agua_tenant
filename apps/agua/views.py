@@ -44,13 +44,15 @@ from .utils import ReadingFilter, DebtFilter, to_none_if_empty, to_decimal_or_no
 
 from django.db import connection
 
+from .core.mixins import TenantSafeMixin
+
 class CustomPagination(PageNumberPagination):
 
     page_size = 5  # Número de registros por página
     page_size_query_param = 'page_size'  # Permite cambiar el tamaño desde la URL
     max_page_size = 100  # Tamaño máximo permitido
 
-class CustomerViewSet(GlobalPermissionMixin, viewsets.ModelViewSet):
+class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelViewSet):
 
     queryset = Customer.objects.all().order_by('-codigo')
     serializer_class = CustomerSerializer
@@ -338,7 +340,7 @@ class CustomerViewSet(GlobalPermissionMixin, viewsets.ModelViewSet):
         return response
 
     @action(detail=True, methods=['get'], url_path='report/debt-history')
-    def report_debt_history(self, request, pk=None):
+    def report_debt_history(self, request, pk=None, **kwargs):
         customer = self.get_object()
         debts = customer.debts.all().order_by('period')
 
@@ -366,7 +368,7 @@ class CustomerViewSet(GlobalPermissionMixin, viewsets.ModelViewSet):
         response['Content-Disposition'] = f'inline; filename="{filename}"'
         return response
     
-class CashBoxViewSet(viewsets.ModelViewSet):
+class CashBoxViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     
     queryset = CashBox.objects.all()
     serializer_class = CashBoxSerializer
@@ -383,7 +385,7 @@ class CashBoxViewSet(viewsets.ModelViewSet):
         return Response({"message": f"Caja del {report.date} confirmada", "closing_balance": report.closing_balance})
 
     @action(detail=True, methods=["get"])
-    def report(self, request, pk=None):
+    def report(self, request, pk=None, **kwargs):
 
         cashbox = self.get_object()
 
@@ -521,13 +523,13 @@ class CashBoxViewSet(viewsets.ModelViewSet):
         response["Content-Disposition"] = f'filename="reporte_caja_{cashbox.id}.pdf"'
         return response
 
-class DailyCashReportViewSet(viewsets.ModelViewSet):
+class DailyCashReportViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     
     queryset = DailyCashReport.objects.all()
     serializer_class = DailyCashReportSerializer
 
     @action(detail=True, methods=["get"])
-    def report(self, request, pk=None):
+    def report(self, request, pk=None, **kwargs):
 
         daily_cash = self.get_object()
 
@@ -638,12 +640,12 @@ class DailyCashReportViewSet(viewsets.ModelViewSet):
         response["Content-Disposition"] = f'filename="reporte_caja_{cashbox.id}.pdf"'
         return response
 
-class WaterMeterViewSet(viewsets.ModelViewSet):
+class WaterMeterViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     
     queryset = WaterMeter.objects.all()
     serializer_class = WaterMeterSerializer
 
-class ReadingViewSet(viewsets.ModelViewSet):
+class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     queryset = Reading.objects.all().order_by('period')
     serializer_class = ReadingSerializer
@@ -876,7 +878,7 @@ class ReadingViewSet(viewsets.ModelViewSet):
         return Response({"message": "Lecturas importadas correctamente"}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['get'])
-    def receipt(self, request, pk=None):
+    def receipt(self, request, pk=None, **kwargs):
         """
         Generar PDF de un solo recibo (para pruebas o impresion individual)
         """ 
@@ -942,7 +944,7 @@ class ReadingViewSet(viewsets.ModelViewSet):
         response["Content-Disposition"] = f'inline; filename=recibo_{reading.customer.codigo}_{reading.period.strftime("%Y-%m")}.pdf"'
         return response
     
-class ReadingGenerationViewSet(viewsets.ModelViewSet):
+class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     queryset = ReadingGeneration.objects.all()
     serializer_class = ReadingGenerationSerializer
@@ -1178,11 +1180,8 @@ class ReadingGenerationViewSet(viewsets.ModelViewSet):
         )
 
         return response
-    
-
-
-
-class DebtViewSet(viewsets.ModelViewSet):
+ 
+class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     queryset = Debt.objects.all().order_by('period')
     serializer_class = DebtSerializer
@@ -1430,14 +1429,14 @@ class DebtViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED
         )
 
-class InvoiceViewSet(viewsets.ModelViewSet):
+class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
     queryset = Invoice.objects.all().order_by('-id')
     serializer_class = InvoiceSerializer
     pagination_class = CustomPagination
 
     @action(detail=True, methods=['get'], url_path='ticket')
-    def ticket_pdf(self, request, pk=None):
+    def ticket_pdf(self, request, pk=None, **kwargs):
 
         invoice = get_object_or_404(Invoice, id=pk)
 
@@ -1457,14 +1456,11 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             "company_logo": None
         }
 
-      
-
         template = get_template('agua/invoice.html')
         html_string = template.render(context)
 
         pdf_buffer = io.BytesIO()
-        # css_path = os.path.join(settings.BASE_DIR, "static/css/ticket.css")
-
+   
         HTML(string=html_string, base_url=request.build_absolute_uri()).write_pdf(
             pdf_buffer
         )
@@ -1481,14 +1477,14 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         invoice.cancel()
         return Response({"message": "Factura anulada"}, status=status.HTTP_200_OK)
 
-class CashConceptViewSet(viewsets.ModelViewSet):
+class CashConceptViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     queryset = CashConcept.objects.all().order_by('id')
     serializer_class = CashConceptSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name']
 
-class CategoryViewSet(viewsets.ModelViewSet):
+class CategoryViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     
     permission_classes = [IsAuthenticated]
     serializer_class = CategorySerializer
@@ -1549,7 +1545,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
         return Response({"message":"ubicacion cargada"}, status=status.HTTP_200_OK)
 
-class ViaViewSet(viewsets.ModelViewSet):
+class ViaViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     queryset = Via.objects.all().order_by('id')
     serializer_class = ViaSerializer
@@ -1624,7 +1620,7 @@ class ViaViewSet(viewsets.ModelViewSet):
 
         return Response({"message":"ubicacion cargada"}, status=status.HTTP_200_OK)
 
-class CalleViewSet(viewsets.ModelViewSet):
+class CalleViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     queryset = Calle.objects.select_related('via').all().order_by('id')
     serializer_class = CalleSerializer
@@ -1632,14 +1628,14 @@ class CalleViewSet(viewsets.ModelViewSet):
     filterset_fields = ['via']  # permite filtrar por tipo_via id
     search_fields = ['codigo','name']
 
-class ZonaViewSet(viewsets.ModelViewSet):
+class ZonaViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     queryset = Zona.objects.all().order_by('id')
     serializer_class = ZonaSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ['codigo','name']
 
-class NotificacionViewSet(viewsets.ModelViewSet):
+class NotificacionViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     queryset = Notificacion.objects.all().order_by("-id")
     serializer_class = NotificacionSerializer
@@ -1666,18 +1662,18 @@ class NotificacionViewSet(viewsets.ModelViewSet):
 
         return Response({"ok": True, "user": user.username})
 
-class CompanyViewSet(viewsets.ModelViewSet):
+class CompanyViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     queryset = Company.objects.all()
     serializer_class = CompanySerializer
 
-class CashOutflowViewSet(viewsets.ModelViewSet):
+class CashOutflowViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     queryset = CashOutflow.objects.all().order_by('-id')
     serializer_class = CashOutflowSerializer
     pagination_class = CustomPagination
 
-class TenantHelloAPIView(APIView):
+class TenantHelloAPIView(TenantSafeMixin,APIView):
 
     def get(self, request, tenant_name=None):
          
@@ -1689,8 +1685,7 @@ class TenantHelloAPIView(APIView):
             "schema": tenant_schema
         })
     
-
-class TenantLoginAPIView(APIView):
+class TenantLoginAPIView(TenantSafeMixin,APIView):
 
     def post(self, request, tenant_name=None):
 
