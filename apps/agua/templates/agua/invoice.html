@@ -138,6 +138,7 @@
                 <p><strong>Documento:</strong> {{ invoice.number_optional|default:"(Sin documento)" }}</p>
             {% else %}
                 <!-- Si es un cliente registrado -->
+                <p><strong>Codigo:</strong> {{ invoice.customer.codigo }}</p>
                 <p><strong>Cliente:</strong> {{ invoice.customer.full_name }}</p>
                 <p><strong>Dirección:</strong> {{ invoice.customer.address|default:"(Sin dirección)" }}</p>
                 <p><strong>Documento:</strong> {{ invoice.customer.number|default:"(Sin documento)" }}</p>

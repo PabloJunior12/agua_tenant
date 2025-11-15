@@ -7,7 +7,6 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from django.conf import settings
 
-
 class Company(models.Model):
 
     name = models.CharField(max_length=255, verbose_name="Nombre de la empresa")
@@ -87,6 +86,7 @@ class Category(models.Model):
 
     price_water = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Precio de agua")
     price_sewer = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Precio de alcantarillado")
+    price_fixed_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
     has_meter = models.BooleanField(default=True)
     state = models.BooleanField(default=True) 
@@ -269,11 +269,10 @@ class Reading(models.Model):
 
     def calculate_total(self):
 
-        cargo_fijo = CashConcept.objects.get(code="003")
-              
-        total_fixed_charge = cargo_fijo.total if cargo_fijo else Decimal("0.00")
-
         tariff = self.customer.category
+
+        cargo_fijo = tariff.price_fixed_charge
+        total_fixed_charge = cargo_fijo if cargo_fijo else Decimal("0.00")
 
         if tariff.has_meter:
 

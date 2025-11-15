@@ -95,7 +95,7 @@
     <!-- Cabecera -->
     <div class="row">
         <div class="col">
-           <img src="{% static 'images/logo.jpeg' %}" alt="Logo" class="mb-4">
+            <img src="{% static 'images/logo.jpeg' %}" alt="Logo" class="mb-4">
         </div>
         <div class="col">
             <div class="codigo">
@@ -116,6 +116,7 @@
 
     <div class="d-flex flex-column customer">
         <span><strong>{{ reading.customer.full_name }}</strong></span>
+        <span><strong>Codigo:</strong>{{ reading.customer.codigo }}</span>
         <span><strong>DNI/RUC:</strong>{{ reading.customer.number }}</span>
         <span><strong>Dirección:</strong>{{ reading.customer.address }}</span>
         <span><strong>Horario de Suministro:</strong> DE 06:00 AM A 10:00 PM</span>
@@ -174,15 +175,15 @@
                 {% endif %}
 
                 {% if total_previous > 0 %}
-                    <div class="header-alert">
-                        <img src="{% static 'images/sad.png' %}" alt="Logo" class="img-sad">
-                        <span class="alert-text">AFECTO A CORTE</span>
-                    </div>
+                <div class="header-alert">
+                    <img src="{% static 'images/sad.png' %}" alt="Logo" class="img-sad">
+                    <span class="alert-text">AFECTO A CORTE</span>
+                </div>
                 {% else %}
-                    <div class="header-alert">
-                        <img src="{% static 'images/happy.png' %}" alt="Logo" class="img-sad">
-                        <span class="alert-text">SIN DEUDAS</span>
-                    </div>
+                <div class="header-alert">
+                    <img src="{% static 'images/happy.png' %}" alt="Logo" class="img-sad">
+                    <span class="alert-text">SIN DEUDAS</span>
+                </div>
                 {% endif %}
             </div>
         </div>
@@ -240,6 +241,44 @@
                 </tr>
             </table>
         </div>
+    </div>
+
+    <hr style="border-top: 1px dashed #000; margin-top: 25px; margin-bottom: 10px;">
+
+    <p style="font-size: 10px; text-align:center; margin:0; padding:0;">
+         TALÓN DE PAGO 
+    </p>
+
+    <div style="border: 1px dashed #000; padding: 8px; margin-top: 8px; font-size: 10px;">
+        <div class="row">
+            <div class="col-6">
+                <strong>Codigo:</strong> {{ reading.customer.codigo }}<br>
+                <strong>Cliente:</strong> {{ reading.customer.full_name }}<br>
+                <strong>DNI/RUC:</strong> {{ reading.customer.number }}<br>
+                <strong>Dirección:</strong> {{ reading.customer.address }}
+            </div>
+
+            <div class="col-6 text-end">
+                <strong>Recibo N°:</strong> {{ reading.id }}<br>
+                <strong>Facturación:</strong> {{ reading.period|date:"F - Y"|capfirst }}<br>
+                <strong>Vencimiento:</strong> {{ reading.date_of_due|date:"d-m-Y" }}
+            </div>
+        </div>
+
+        <hr style="margin: 6px 0;">
+
+        <div class="row">
+            <div class="col-6">
+                <strong>Total a pagar:</strong>
+            </div>
+            <div class="col-6 text-end">
+                <strong>S/ {{ total_general }}</strong>
+            </div>
+        </div>
+
+        <p style="text-align:center; margin-top:8px; font-size:9px;">
+            Presentar este talón al momento de realizar su pago.
+        </p>
     </div>
 
     {% if not forloop.last %}

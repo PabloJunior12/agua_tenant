@@ -995,7 +995,8 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 consumption=0,
                 total_water=tariff.price_water,
                 total_sewer=tariff.price_sewer,
-                total_amount=tariff.price_water + tariff.price_sewer,
+                total_fixed_charge=tariff.price_fixed_charge,
+                total_amount=tariff.price_water + tariff.price_sewer + tariff.price_fixed_charge,
                 paid=False,
                 date_of_issue=request.data.get("date_of_issue"),
                 date_of_due=request.data.get("date_of_due"),
@@ -1217,7 +1218,7 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         }
 
         # Calcular montos base
-        total_fixed_charge = conceptos["003"].total
+        total_fixed_charge = customer.category.price_fixed_charge
         total_water = customer.category.price_water
         total_sewer = customer.category.price_sewer
         total_amount = total_water + total_sewer + total_fixed_charge
@@ -1245,9 +1246,18 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         )
 
         # Crear detalles
-        DebtDetail.objects.create(debt=debt, concept=conceptos["001"], amount=total_water)
-        DebtDetail.objects.create(debt=debt, concept=conceptos["002"], amount=total_sewer)
-        DebtDetail.objects.create(debt=debt, concept=conceptos["003"], amount=total_fixed_charge)
+
+        if total_water > 0:
+
+           DebtDetail.objects.create(debt=debt, concept=conceptos["001"], amount=total_water)
+
+        if total_sewer > 0:
+
+           DebtDetail.objects.create(debt=debt, concept=conceptos["002"], amount=total_sewer)
+
+        if total_fixed_charge > 0:  
+
+           DebtDetail.objects.create(debt=debt, concept=conceptos["003"], amount=total_fixed_charge)
 
         # Respuesta
         serializer = self.get_serializer(debt)
