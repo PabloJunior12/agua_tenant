@@ -118,5 +118,16 @@
       "icon": "fa-solid fa-chart-line",
       "parent": 5
     }
+  },
+  {
+    "model": "user.module",
+    "pk": 12,
+    "fields": {
+      "name": "Morosidad",
+      "code": "morosity",
+      "path": "/dashboard/morosity",
+      "icon": "fa-solid fa-triangle-exclamation",
+      "parent": null
+    }
   }
 ]
