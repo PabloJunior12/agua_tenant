@@ -166,3 +166,25 @@ def generate_daily_report(cashbox: CashBox, date=None):
         report.save()
 
     return report
+
+def get_reading_status(reading):
+
+    today = date.today()
+
+    if reading.paid:
+
+        return "PAID"
+
+    if today < reading.date_of_due:
+
+        return "ON_TIME"
+
+    if reading.date_of_due <= today < reading.date_of_cute:
+
+        return "OVERDUE"
+
+    if today >= reading.date_of_cute:
+        
+        return "CUT"
+
+    return "UNKNOWN"

@@ -17,8 +17,9 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import ValidationError
+from rest_framework.generics import ListAPIView
 
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from weasyprint import HTML, CSS
 from collections import defaultdict
 from babel.dates import format_date
@@ -26,7 +27,7 @@ from decimal import Decimal
 from apps.user.models import User
 from .models import Customer, DailyCashReport, WaterMeter, CashOutflow, Notificacion, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
 from .serializers import (
-    CustomerSerializer, WaterMeterSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
+    CustomerSerializer, MorosidadSerializer, WaterMeterSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
     ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer, NotificacionSerializer
 )
 from apps.agua.core.permissions import GlobalPermissionMixin
@@ -1682,35 +1683,66 @@ class CashOutflowViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     serializer_class = CashOutflowSerializer
     pagination_class = CustomPagination
 
-class TenantHelloAPIView(TenantSafeMixin,APIView):
-
-    def get(self, request, tenant_name=None):
-         
-        tenant_schema = getattr(request, "tenant_schema", "public")
-        
-        return Response({
-            "message": f"Hola Mundo Tenant!",
-            "tenant": tenant_name,
-            "schema": tenant_schema
-        })
+class BaseMorosidadListView(ListAPIView):
     
-class TenantLoginAPIView(TenantSafeMixin,APIView):
+    serializer_class = MorosidadSerializer
+    queryset = Customer.objects.all()
 
-    def post(self, request, tenant_name=None):
+    def filter_queryset(self, qs):
 
-        print("DEBUG >> AUTH_USER_MODEL:", settings.AUTH_USER_MODEL)
-        print("DEBUG >> SCHEMA:", connection.schema_name)
+        return qs.filter(readings__paid=False).distinct()
+    
+class MorosidadOnTimeView(BaseMorosidadListView):
+    def get_queryset(self):
+        today = date.today()
+        return super().get_queryset().filter(
+            readings__date_of_due__gt=today
+        ).distinct()
+    
+class MorosidadNoticeView(BaseMorosidadListView):
+    def get_queryset(self):
+        today = date.today()
+        soon = today + timedelta(days=3)
+        return super().get_queryset().filter(
+            readings__date_of_due__gt=today,
+            readings__date_of_due__lte=soon
+        ).distinct()
 
-        username = request.data.get("username")
-        password = request.data.get("password")
+class MorosidadOverdueView(BaseMorosidadListView):
+    def get_queryset(self):
+        today = date.today()
+        return super().get_queryset().filter(
+            readings__date_of_due__lte=today,
+            readings__date_of_cute__gt=today
+        ).distinct()
+    
+class MorosidadCutView(BaseMorosidadListView):
+    def get_queryset(self):
+        today = date.today()
+        return super().get_queryset().filter(
+            readings__date_of_cute__lte=today
+        ).distinct()
+    
+class MorosidadStatusView(APIView):
 
-        user = authenticate(username=username, password=password)
-        
-        if user:
-            token, created = Token.objects.get_or_create(user=user)
-            return Response({
-                "token": token.key,
-                "user": user.username,
-                "tenant": tenant_name
-            })
-        return Response({"error": "Credenciales inválidas"}, status=400)
+    def get(self, request):
+
+        today = date.today()
+
+        readings = Reading.objects.filter(paid=False)
+
+        data = {
+            "on_time": MorosidadSerializer(
+                readings.filter(date_of_due__gt=today), many=True
+            ).data,
+
+            "overdue": MorosidadSerializer(
+                readings.filter(date_of_due__lte=today, date_of_cute__gt=today), many=True
+            ).data,
+
+            "cut": MorosidadSerializer(
+                readings.filter(date_of_cute__lte=today), many=True
+            ).data,
+        }
+
+        return Response(data)

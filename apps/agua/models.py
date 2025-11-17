@@ -205,11 +205,19 @@ class WaterMeter(models.Model):
 class Reading(models.Model):
     
     customer = models.ForeignKey('Customer', related_name='readings', on_delete=models.CASCADE)
-    period = models.DateField()  # Ej. 2025-07-01
 
+    # Usas este campo como "mes facturado"
+    period = models.DateField()
+
+    # Fechas automaticas
     date_of_issue = models.DateField(null=True)
     date_of_due = models.DateField(null=True)
     date_of_cute = models.DateField(null=True)
+
+    # (Opcionales, si deseas registrarlos)
+    period_start = models.DateField(null=True)
+    period_end = models.DateField(null=True)
+
 
     current_reading = models.DecimalField(max_digits=10, decimal_places=3)
     previous_reading = models.DecimalField(max_digits=10, decimal_places=3, default=0.000)
@@ -294,8 +302,35 @@ class Reading(models.Model):
 
         return self.total_amount
 
+    def set_billing_dates(self):
+
+        year = self.period.year
+        month = self.period.month
+
+        # Fecha de emision
+        self.date_of_issue = date(year, month, 25)
+
+        # Fecha de vencimiento (mes siguiente)
+        if month == 12:
+            self.date_of_due = date(year + 1, 1, 15)
+        else:
+            self.date_of_due = date(year, month + 1, 15)
+
+        # Fecha de corte (7 dias despues)
+        self.date_of_cute = self.date_of_due + timedelta(days=7)
+
+        # Periodo de consumo exacto
+        # Inicio: 25 del mes anterior
+        if month == 1:
+            self.period_start = date(year - 1, 12, 25)
+        else:
+            self.period_start = date(year, month - 1, 25)
+
+        # Fin: 24 del mes actual
+        self.period_end = date(year, month, 24)
+
     # -------------------------------
-    # Sincronización con deudas
+    # Sincronizacion con deudas
     # -------------------------------
     def _sync_debt(self):
 
@@ -355,7 +390,11 @@ class Reading(models.Model):
     # -------------------------------
     def save(self, *args, skip_process=False, **kwargs):
 
+        # Primero generamos fechas automaticas
+        self.set_billing_dates()
+
         if not skip_process:
+
             # Calcular consumo + total de esta lectura
             self.calculate_consumption()
             self.calculate_total()
@@ -366,7 +405,7 @@ class Reading(models.Model):
             # Crear o actualizar deuda
             self._sync_debt()
 
-            # 🔄 Recalcular en cascada los meses posteriores
+            # Recalcular en cascada los meses posteriores
             next_readings = Reading.objects.filter(
                 customer=self.customer,
                 period__gt=self.period
@@ -391,7 +430,7 @@ class Reading(models.Model):
 
         else:
 
-            # ⚡ Guardar directo sin procesos
+            # Guardar directo sin procesos
             super().save(*args, **kwargs)
 
 class Debt(models.Model):

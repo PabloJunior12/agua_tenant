@@ -128,31 +128,36 @@ class ClientViewSet(viewsets.ModelViewSet):
 
 class ConecctMineco(APIView):
 
-    session = requests.Session()  # Mantener la sesión activa
+    session = requests.Session()  # Mantener la sesión REAL
 
     def get(self, request):
 
-        """Descarga el CAPTCHA y lo envía a Angular como base64"""
         captcha_url = "https://apps4.mineco.gob.pe/siafadmapp/jcaptcha.jpg"
-        captcha_response = self.session.get(captcha_url)
+
+        # HEADERS HUMANOS (muy importante)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Accept": "image/avif,image/webp,*/*",
+            "Referer": "https://apps4.mineco.gob.pe/siafadmapp/login",
+        }
+
+        captcha_response = self.session.get(captcha_url, headers=headers)
 
         if captcha_response.status_code == 200:
-            # Convertir imagen a base64 para enviarla a Angular
             import base64
             captcha_base64 = base64.b64encode(captcha_response.content).decode("utf-8")
-
             return Response({"captcha": captcha_base64})
         else:
             return Response({"error": "Error al descargar el captcha"}, status=400)
 
     def post(self, request):
 
-        """Recibe el CAPTCHA ingresado, hace login y devuelve el JSESSIONID"""
         username = request.data.get("username")
         password = request.data.get("password")
         captcha_text = request.data.get("captcha")
 
         login_url = "https://apps4.mineco.gob.pe/siafadmapp/j_spring_security_check"
+
         payload = {
             "j_username": username,
             "j_password": password,
@@ -165,36 +170,31 @@ class ConecctMineco(APIView):
             "Origin": "https://apps4.mineco.gob.pe",
             "Referer": "https://apps4.mineco.gob.pe/siafadmapp/login",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
 
-        login_response = self.session.post(login_url, data=payload, headers=headers, allow_redirects=True)
+        # LOGIN usando SIEMPRE self.session
+        login_response = self.session.post(login_url, data=payload, headers=headers)
+
         jsessionid = self.session.cookies.get("JSESSIONID")
 
-        if jsessionid:
+        if not jsessionid:
+            return Response({"error": "Captcha o credenciales inválidas"}, status=400)
 
-            menu_url = "https://apps4.mineco.gob.pe/siafadmapp/privado/menu"
+        # IR AL MENU usando la MISMA session
+        menu_url = "https://apps4.mineco.gob.pe/siafadmapp/privado/menu"
 
-            header_menu = {
-                "Cookie" : f"JSESSIONID={jsessionid};"
-            } 
+        menu_response = self.session.get(menu_url, headers={"User-Agent": headers["User-Agent"]})
 
-            menu_response = requests.get(menu_url, headers=header_menu)
+        soup = BeautifulSoup(menu_response.text, "html.parser")
 
-            soup = BeautifulSoup(menu_response.text, 'html.parser')
+        title_tag = soup.find("title")
 
-            # Buscar la etiqueta <title>
-            title_tag = soup.find("title")
+        if title_tag and "Inicio de sesión" in title_tag.text:
+            return Response({"error": "Fallo de login (captcha o bloqueo)"}, status=400)
 
-            if title_tag and "Inicio de sesión" in title_tag.text:
-                
-                return Response({"error": "Error al iniciar sesion, Vuelve a intentarlo"}, status=status.HTTP_400_BAD_REQUEST)
-                
-            else:
-     
-                return Response({"JSESSIONID": jsessionid})
-        else:
-
-            return Response({"error": "Error al iniciar sesion, Vuelve a intentarlo"}, status=status.HTTP_400_BAD_REQUEST)
+        # ÉXITO
+        return Response({"JSESSIONID": jsessionid})
 
 class ImportSiafApiView(APIView):
     def post(self, request):

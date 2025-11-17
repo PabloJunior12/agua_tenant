@@ -3,10 +3,12 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.utils.timezone import now
 from django.conf import settings
 from .models import Customer, WaterMeter, CashBox, Company, Notificacion, CashOutflow, InvoiceConcept, CashMovement, DebtDetail, CashConcept, Reading, ReadingGeneration, Invoice, Category, Via, Calle, InvoiceDebt, Zona, Debt, InvoicePayment, DailyCashReport
-from .utils import next_month_date
+from .utils import next_month_date, get_reading_status
 from django.db import transaction
 from django.db.models import Sum
 from decimal import Decimal
+
+
 import os
 
 class ZonaSerializer(serializers.ModelSerializer):
@@ -145,6 +147,37 @@ class CashConceptSerializer(serializers.ModelSerializer):
     class Meta:
         model = CashConcept
         fields = "__all__"
+
+class MorosidadSerializer(serializers.ModelSerializer):
+    last_reading_status = serializers.SerializerMethodField()
+    last_due_date = serializers.SerializerMethodField()
+    total_debt = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Customer
+        fields = [
+            "id",
+            "full_name",
+            "address",
+            "number",
+            "last_reading_status",
+            "last_due_date",
+            "total_debt",
+        ]
+
+    def get_last_reading_status(self, obj):
+        r = obj.readings.filter(paid=False).order_by('-date_of_due').first()
+        return get_reading_status(r) if r else None
+
+    def get_last_due_date(self, obj):
+        r = obj.readings.filter(paid=False).order_by('-date_of_due').first()
+        return r.date_of_due if r else None
+
+    def get_total_debt(self, obj):
+        return obj.readings.filter(paid=False).aggregate(
+            total=Sum('total_amount')
+        )['total'] or 0
+
 
 class ReadingSerializer(serializers.ModelSerializer):
 
@@ -419,7 +452,6 @@ class InvoiceSerializer(serializers.ModelSerializer):
             invoice.save()
 
         return invoice
-
 
 class ViaSerializer(serializers.ModelSerializer):
 
