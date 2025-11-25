@@ -6,7 +6,7 @@ from django.conf import settings
 from django.utils.timezone import now, localdate
 from django.utils.formats import date_format
 from django.db import transaction
-from django.db.models import Max, Sum, Count, Min
+from django.db.models import Max, Sum, Count, Min, Q
 
 from dateutil.relativedelta import relativedelta
 
@@ -1684,65 +1684,42 @@ class CashOutflowViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     pagination_class = CustomPagination
 
 class BaseMorosidadListView(ListAPIView):
-    
+
     serializer_class = MorosidadSerializer
-    queryset = Customer.objects.all()
 
-    def filter_queryset(self, qs):
-
-        return qs.filter(readings__paid=False).distinct()
+    def get_queryset(self):
+        # Clientes que tienen al menos UNA deuda impaga
+        return (
+            Customer.objects
+            .filter(debts__paid=False)
+            .distinct()
+        )
     
 class MorosidadOnTimeView(BaseMorosidadListView):
+
+    pagination_class = CustomPagination
     def get_queryset(self):
-        today = date.today()
-        return super().get_queryset().filter(
-            readings__date_of_due__gt=today
-        ).distinct()
-    
-class MorosidadNoticeView(BaseMorosidadListView):
-    def get_queryset(self):
-        today = date.today()
-        soon = today + timedelta(days=3)
-        return super().get_queryset().filter(
-            readings__date_of_due__gt=today,
-            readings__date_of_due__lte=soon
-        ).distinct()
+        return (
+            super()
+            .get_queryset()
+            .annotate(
+                unpaid_months=Count('debts__id', filter=Q(debts__paid=False), distinct=True)
+            )
+            .filter(unpaid_months__lte=2)
+            .order_by('codigo')
+        )
+
 
 class MorosidadOverdueView(BaseMorosidadListView):
+
+    pagination_class = CustomPagination
     def get_queryset(self):
-        today = date.today()
-        return super().get_queryset().filter(
-            readings__date_of_due__lte=today,
-            readings__date_of_cute__gt=today
-        ).distinct()
-    
-class MorosidadCutView(BaseMorosidadListView):
-    def get_queryset(self):
-        today = date.today()
-        return super().get_queryset().filter(
-            readings__date_of_cute__lte=today
-        ).distinct()
-    
-class MorosidadStatusView(APIView):
-
-    def get(self, request):
-
-        today = date.today()
-
-        readings = Reading.objects.filter(paid=False)
-
-        data = {
-            "on_time": MorosidadSerializer(
-                readings.filter(date_of_due__gt=today), many=True
-            ).data,
-
-            "overdue": MorosidadSerializer(
-                readings.filter(date_of_due__lte=today, date_of_cute__gt=today), many=True
-            ).data,
-
-            "cut": MorosidadSerializer(
-                readings.filter(date_of_cute__lte=today), many=True
-            ).data,
-        }
-
-        return Response(data)
+        return (
+            super()
+            .get_queryset()
+            .annotate(
+                unpaid_months=Count('debts__id', filter=Q(debts__paid=False), distinct=True)
+            )
+            .filter(unpaid_months__gt=2)
+            .order_by('codigo')
+        )

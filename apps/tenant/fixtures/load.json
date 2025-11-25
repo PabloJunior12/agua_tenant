@@ -129,5 +129,16 @@
       "icon": "fa-solid fa-triangle-exclamation",
       "parent": null
     }
+  },
+  {
+    "model": "user.module",
+    "pk": 13,
+    "fields": {
+      "name": "Zonas",
+      "code": "zone",
+      "path": "/dashboard/zone",
+      "icon": "fa-solid fa-map",
+      "parent": null
+    }
   }
 ]

@@ -21,15 +21,30 @@ class Company(models.Model):
 
 class Zona(models.Model):
 
-    codigo = models.CharField(max_length=4)
+    codigo = models.CharField(max_length=4, unique=True, editable=False)
     name = models.CharField(max_length=100, verbose_name="Nombre de la Zona")
 
-    def __str__(self):
-        return self.name
+    def save(self, *args, **kwargs):
+
+        if not self.codigo:
+
+            last_via = Zona.objects.order_by('-id').first()
+
+            next_number = 1 if not last_via else int(last_via.codigo) + 1
+
+            self.codigo = str(next_number).zfill(4)  # genera "01", "02", "03"...
+
+        super().save(*args, **kwargs)
+
+
 
     class Meta:
         verbose_name = "Zona"
         verbose_name_plural = "Zonas"
+
+    def __str__(self):
+
+        return self.name
 
 class Via(models.Model):
 
@@ -58,6 +73,7 @@ class Calle(models.Model):
     codigo = models.CharField(max_length=4, unique=True, editable=False)
     via = models.ForeignKey(Via, on_delete=models.CASCADE, related_name='calles')
     name = models.CharField(max_length=100)
+    zona = models.ForeignKey(Zona, on_delete=models.PROTECT, null=True)
 
     def save(self, *args, **kwargs):
         # Generar código automáticamente si no existe
@@ -651,6 +667,7 @@ class Notificacion(models.Model):
     leido = models.BooleanField(default=False)
 
     def __str__(self):
+
         return f"{self.usuario.username} - {self.mensaje[:30]}"
 
 #     state = models.BooleanField(default=True)

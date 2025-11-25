@@ -2,7 +2,7 @@ from rest_framework import routers
 from django.urls import path
 from .views import (
     CustomerViewSet, WaterMeterViewSet, CategoryViewSet, CashOutflowViewSet, ViaViewSet, CalleViewSet, CashBoxViewSet, CompanyViewSet,
-    ReadingViewSet, InvoiceViewSet, ZonaViewSet, DebtViewSet, NotificacionViewSet, ReadingGenerationViewSet, CashConceptViewSet, DailyCashReportViewSet, MorosidadOnTimeView, MorosidadNoticeView, MorosidadOverdueView, MorosidadCutView, MorosidadStatusView
+    ReadingViewSet, InvoiceViewSet, ZonaViewSet, DebtViewSet, NotificacionViewSet, ReadingGenerationViewSet, CashConceptViewSet, DailyCashReportViewSet, MorosidadOnTimeView, MorosidadOverdueView 
 )
 router = routers.DefaultRouter()
 
@@ -26,9 +26,7 @@ router.register('daily-cash-report', DailyCashReportViewSet)
 urlpatterns = [
 
     path("morosidad/on-time/", MorosidadOnTimeView.as_view()),
-    path("morosidad/notice/", MorosidadNoticeView.as_view()),
-    path("morosidad/overdue/", MorosidadOverdueView.as_view()),
-    path("morosidad/cut/", MorosidadCutView.as_view()),
-    path("morosidad/status/", MorosidadStatusView.as_view()),
+    path("morosidad/moroso/", MorosidadOverdueView.as_view()),
+
 
 ] + router.urls

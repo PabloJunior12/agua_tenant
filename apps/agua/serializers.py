@@ -25,7 +25,7 @@ class CalleSerializer(serializers.ModelSerializer):
     class Meta:
 
         model = Calle
-        fields = ['id', 'via', 'via_name', 'name','codigo']
+        fields = ['id', 'via', 'via_name', 'name','codigo','zona']
 
 class WaterMeterSerializer(serializers.ModelSerializer):
 
@@ -149,34 +149,42 @@ class CashConceptSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 class MorosidadSerializer(serializers.ModelSerializer):
+    
     last_reading_status = serializers.SerializerMethodField()
     last_due_date = serializers.SerializerMethodField()
     total_debt = serializers.SerializerMethodField()
+    unpaid_months = serializers.SerializerMethodField()
 
     class Meta:
         model = Customer
         fields = [
             "id",
             "full_name",
+            "codigo",
             "address",
             "number",
             "last_reading_status",
             "last_due_date",
             "total_debt",
+            "unpaid_months",
         ]
 
     def get_last_reading_status(self, obj):
-        r = obj.readings.filter(paid=False).order_by('-date_of_due').first()
-        return get_reading_status(r) if r else None
+    
+        d = obj.debts.filter(paid=False).order_by('-period').first()
+        return "overdue" if d else None
 
     def get_last_due_date(self, obj):
-        r = obj.readings.filter(paid=False).order_by('-date_of_due').first()
-        return r.date_of_due if r else None
+        d = obj.debts.filter(paid=False).order_by('-period').first()
+        return d.reading.date_of_due if (d and d.reading) else None
 
     def get_total_debt(self, obj):
-        return obj.readings.filter(paid=False).aggregate(
-            total=Sum('total_amount')
+        return obj.debts.filter(paid=False).aggregate(
+            total=Sum('amount')
         )['total'] or 0
+
+    def get_unpaid_months(self, obj):
+        return obj.debts.filter(paid=False).count()
 
 
 class ReadingSerializer(serializers.ModelSerializer):
