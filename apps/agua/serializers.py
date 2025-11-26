@@ -8,7 +8,6 @@ from django.db import transaction
 from django.db.models import Sum
 from decimal import Decimal
 
-
 import os
 
 class ZonaSerializer(serializers.ModelSerializer):
@@ -185,7 +184,6 @@ class MorosidadSerializer(serializers.ModelSerializer):
 
     def get_unpaid_months(self, obj):
         return obj.debts.filter(paid=False).count()
-
 
 class ReadingSerializer(serializers.ModelSerializer):
 

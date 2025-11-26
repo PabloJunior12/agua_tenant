@@ -1444,6 +1444,8 @@ class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
     queryset = Invoice.objects.all().order_by('-id')
     serializer_class = InvoiceSerializer
     pagination_class = CustomPagination
+    filter_backends = [DjangoFilterBackend,filters.SearchFilter]
+    search_fields = ['customer__codigo', 'customer__full_name', 'customer__number']
 
     @action(detail=True, methods=['get'], url_path='ticket')
     def ticket_pdf(self, request, pk=None, **kwargs):
@@ -1708,7 +1710,6 @@ class MorosidadOnTimeView(BaseMorosidadListView):
             .filter(unpaid_months__lte=2)
             .order_by('codigo')
         )
-
 
 class MorosidadOverdueView(BaseMorosidadListView):
 

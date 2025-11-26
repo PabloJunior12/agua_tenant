@@ -502,6 +502,8 @@ class Invoice(models.Model):
         ('cancelled', 'Anulada'),
     ]
 
+
+
     name_optional = models.CharField(max_length=200, blank=True, null=True)
     number_optional = models.CharField(max_length=15, blank=True, null=True)
     code = models.CharField(max_length=7, unique=True, editable=False)
@@ -510,7 +512,7 @@ class Invoice(models.Model):
     total = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     reference = models.CharField(max_length=100, blank=True, null=True)  # N° operación bancaria, etc.
     notes = models.TextField(blank=True, null=True)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')  # 👈
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def cancel(self):
