@@ -10,6 +10,7 @@ from .serializers import UserSerializer, ModuleSerializer, UserPermissionSeriali
 from .models import User, Module, UserPermission
 from django.conf import settings
 from django.db import connection
+from .services import get_allowed_modules
 import requests
 
 class CustomPagination(PageNumberPagination):
@@ -208,24 +209,15 @@ class UserPermissionViewSet(ModelViewSet):
         return super().get_queryset()
 
 class MeView(APIView):
-
+    
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        
         user = request.user
 
-        # Obtener permisos del usuario
-        permissions = UserPermission.objects.filter(user=user).select_related('module')
-
-        permissions_data = [
-            {
-                "module_id": perm.module.id,
-                "module": perm.module.code,
-                "name": perm.module.name,
-            }
-            for perm in permissions
-        ]
+        # módulos permitidos (incluye padres)
+        root_modules = get_allowed_modules(user)
+        module_tree = ModuleSerializer(root_modules, many=True).data
 
         user_data = {
             "id": user.id,
@@ -234,7 +226,7 @@ class MeView(APIView):
             "is_admin": user.is_admin,
             "is_staff": user.is_staff,
             "tenant": user.tenant.id if user.tenant else None,
-            "permissions": permissions_data,
+            "modules": module_tree,
         }
 
         return Response(user_data, status=200)

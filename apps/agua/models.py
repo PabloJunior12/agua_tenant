@@ -179,12 +179,19 @@ class CashConcept(models.Model):
   
 class Customer(models.Model):
 
+    CONNECTION_TYPE_NEW = 'new'
+    CONNECTION_TYPE_OLD = 'old'
+
+    CONNECTION_TYPES = [
+        (CONNECTION_TYPE_NEW, 'Conexión nueva'),
+        (CONNECTION_TYPE_OLD, 'Conexión antigua'),
+    ]
+
     ESTADO_CHOICES = [
         ("active", "Activo"),
         ("inactive", "Inactivo"),
         ("suspended", "Suspendido"),
     ]
-
 
     codigo = models.CharField(max_length=5, null=True, blank=True)
     identity_document_type = models.IntegerField(default=1)
@@ -199,11 +206,17 @@ class Customer(models.Model):
     lote = models.CharField(max_length=15, blank=True, null=True)
     nro = models.CharField(max_length=15, blank=True, null=True)
 
-    # 🔹 Nuevo campo
+    #  Nuevo campo
     state = models.CharField(
         max_length=15,
         choices=ESTADO_CHOICES,
         default="active",
+    )
+
+    connection_type = models.CharField(
+        max_length=10,
+        choices=CONNECTION_TYPES,
+        default=CONNECTION_TYPE_NEW
     )
 
     def __str__(self):
@@ -501,8 +514,6 @@ class Invoice(models.Model):
         ('active', 'Activa'),
         ('cancelled', 'Anulada'),
     ]
-
-
 
     name_optional = models.CharField(max_length=200, blank=True, null=True)
     number_optional = models.CharField(max_length=15, blank=True, null=True)

@@ -71,7 +71,13 @@ class Module(models.Model):
         null=True
     )
 
+    order = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ["order", "name"]
+
     def __str__(self):
+
         return self.name
 
 class UserPermission(models.Model):

@@ -7,7 +7,8 @@
       "code": "dashboard",
       "path": "/dashboard",
       "icon": "fa-solid fa-desktop",
-      "parent": null
+      "parent": null,
+      "order" : 1
     }
   },
   {
@@ -18,7 +19,8 @@
       "code": "user",
       "path": "/dashboard/user",
       "icon": "fa-solid fa-user",
-      "parent": null
+      "parent": null,
+      "order" : 2
     }
   },
   {
@@ -29,7 +31,8 @@
       "code": "customer",
       "path": "/dashboard/customer",
       "icon": "fa-solid fa-users",
-      "parent": null
+      "parent": null,
+      "order" :3
     }
   },
   {
@@ -40,7 +43,8 @@
       "code": "debt-generation",
       "path": "/dashboard/debt-generation",
       "icon": "fa-regular fa-address-book",
-      "parent": null
+      "parent": null,
+      "order" : 4
     }
   },
   {
@@ -50,7 +54,8 @@
       "name": "Caja",
       "code": "caja",
       "icon": "fa-solid fa-cash-register",
-      "parent": null
+      "parent": null,
+      "order" : 5
     }
   },
   {
@@ -61,7 +66,8 @@
       "code": "invoice",
       "path": "/dashboard/invoice",
       "icon": "fa-solid fa-file-invoice-dollar",
-      "parent": 5
+      "parent": 5,
+      "order" : 6
     }
   },
   {
@@ -72,7 +78,8 @@
       "code": "cash-box",
       "path": "/dashboard/cash-box",
       "icon": "fa-solid fa-chart-line",
-      "parent": 5
+      "parent": 5,
+      "order" : 7
     }
   },
   {
@@ -83,7 +90,8 @@
       "code": "category",
       "path": "/dashboard/category",
       "icon": "fa-solid fa-layer-group",
-      "parent": null
+      "parent": null,
+      "order" : 8
     }
   },
   {
@@ -94,7 +102,8 @@
       "code": "catalogo",
       "path": "/dashboard/catalogo",
       "icon": "fa-brands fa-stack-exchange",
-      "parent": null
+      "parent": null,
+      "order" : 9
     }
   },
   {
@@ -105,7 +114,8 @@
       "code": "ubication",
       "path": "/dashboard/ubication",
       "icon": "fa-solid fa-location-dot",
-      "parent": null
+      "parent": null,
+      "order" : 10
     }
   },
   {
@@ -116,7 +126,8 @@
       "code": "egreso",
       "path": "/dashboard/egreso",
       "icon": "fa-solid fa-chart-line",
-      "parent": 5
+      "parent": 5,
+      "order" : 11
     }
   },
   {
@@ -127,7 +138,8 @@
       "code": "morosity",
       "path": "/dashboard/morosity",
       "icon": "fa-solid fa-triangle-exclamation",
-      "parent": null
+      "parent": null,
+      "order" : 12
     }
   },
   {
@@ -138,7 +150,8 @@
       "code": "zone",
       "path": "/dashboard/zone",
       "icon": "fa-solid fa-map",
-      "parent": null
+      "parent": null,
+      "order" : 13
     }
   }
 ]

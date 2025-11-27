@@ -2,32 +2,17 @@
 from rest_framework import serializers
 from .models import User, Module, UserPermission, GlobalPermission
 
-# from apps.agua.serializers import ModuleSerializer
-
-# class UserPermissionSerializer(serializers.ModelSerializer):
-#     module = ModuleSerializer(read_only=True)
-#     module_id = serializers.PrimaryKeyRelatedField(
-#         queryset=Module.objects.all(), source='module', write_only=True
-#     )
-
-#     class Meta:
-#         model = UserPermission
-#         fields = ['id', 'module', 'module_id', 'can_view', 'can_edit', 'can_delete']
-
-
 class ModuleSerializer(serializers.ModelSerializer):
-
     children = serializers.SerializerMethodField()
 
     class Meta:
-        
         model = Module
-        fields = ["id", "name", "code", "icon", "children","path"]
+        fields = ["id", "name", "code", "icon", "children", "path"]
 
     def get_children(self, obj):
-        return ModuleSerializer(obj.children.all(), many=True).data
+        children = obj.children.all().order_by("order")
+        return ModuleSerializer(children, many=True).data
     
-
 class UserPermissionSerializer(serializers.ModelSerializer):
 
     module = serializers.PrimaryKeyRelatedField(queryset=Module.objects.all())
@@ -54,6 +39,7 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'email', 'name', 'username', 'surname', 'phone',
             'is_active', 'is_staff', 'is_admin', 'password', 'permissions','global_permissions'
         ]
+
 
     def create(self, validated_data):
 
