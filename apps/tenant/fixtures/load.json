@@ -91,7 +91,7 @@
       "path": "/dashboard/category",
       "icon": "fa-solid fa-layer-group",
       "parent": null,
-      "order" : 8
+      "order" : 9
     }
   },
   {
@@ -103,7 +103,7 @@
       "path": "/dashboard/catalogo",
       "icon": "fa-brands fa-stack-exchange",
       "parent": null,
-      "order" : 9
+      "order" : 10
     }
   },
   {
@@ -115,7 +115,7 @@
       "path": "/dashboard/ubication",
       "icon": "fa-solid fa-location-dot",
       "parent": null,
-      "order" : 10
+      "order" : 12
     }
   },
   {
@@ -139,7 +139,7 @@
       "path": "/dashboard/morosity",
       "icon": "fa-solid fa-triangle-exclamation",
       "parent": null,
-      "order" : 12
+      "order" : 8
     }
   },
   {
