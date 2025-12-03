@@ -41,7 +41,7 @@ import tempfile
 import zipfile
 from django.contrib.auth import authenticate
 from rest_framework.authtoken.models import Token
-from .utils import ReadingFilter, DebtFilter, to_none_if_empty, to_decimal_or_none, generar_periodos, format_period, generate_daily_report
+from .utils import ReadingFilter, DebtFilter, to_none_if_empty, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico
 
 from django.db import connection
 
@@ -167,7 +167,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             df = pd.read_excel(
                 file,
                 engine='openpyxl',
-                header=2,
+                # header=2,
                 dtype={'Codigo': str}
             )
         except Exception as e:
@@ -196,7 +196,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             full_name = to_none_if_empty(row.get('Usuario/Cliente'))
            
             calle_dir = row.get('cod_direc')
-            print(type(calle_dir), calle_dir)
+          
             zona_name = to_none_if_empty(row.get('Barrio'))
             
             nro = to_none_if_empty(row.get("Nro."))
@@ -216,12 +216,21 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
 
             # Normalizar valor
             if not calle_dir or str(calle_dir).strip() == '' or pd.isna(calle_dir):
+
                 calle_dir = 1
+
             else:
+
                 calle_dir = int(str(calle_dir).strip())
 
-            print(calle_dir)
-            calle = Calle.objects.get(pk = calle_dir)
+
+            calle_dir_ = str(calle_dir).zfill(4)
+
+            calle = Calle.objects.filter(codigo=calle_dir_).first()
+
+            # Si no existe, tomar la primera calle de toda la tabla
+            if not calle:
+                calle = Calle.objects.first()
 
             parts = [
                 f"{calle.via.name} {calle.name}",
@@ -243,9 +252,16 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             else:
                 has_meter = True if code else False
 
-            # Categoría
-            category_id = to_none_if_empty(row.get('cod_categ')) or 6
+            # Si tiene medidor pero no tiene código, generar uno
+            # if has_meter and not code:
+            #     code = generar_codigo_medidor_unico()
 
+            # Categoría
+            category_id = to_none_if_empty(row.get('cod_categ')) or 1
+            category_id_ = str(category_id).zfill(2)
+
+            category = Category.objects.filter(codigo=category_id_).first()
+        
             #Crear cliente
             customer = Customer.objects.create(
                 codigo=codigo,
@@ -257,7 +273,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                 mz=mz,
                 lote=lote,
                 has_meter=has_meter,
-                category_id=category_id,
+                category=category,
                 calle = calle,
                 zona = zona
             )
@@ -751,7 +767,7 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             df = pd.read_excel(
                 file,
                 engine='openpyxl',
-                header=2,
+                # header=2,
                 dtype={'Codigo': str}
             )
         except Exception as e:
@@ -775,6 +791,7 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 current_reading = to_decimal_or_none(row.get(lect_col))
                 consumption = to_decimal_or_none(row.get(consumo_col))
                 deuda = to_decimal_or_none(row.get(deuda_col))
+                print(deuda)
                 pago = to_decimal_or_none(row.get(pago_col))
 
                 # Si en este mes no hay lectura, consumo, deuda ni pago → cortamos
@@ -805,29 +822,32 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
                 total_fixed_charge = cargo_fijo.total if cargo_fijo else Decimal("0.00")
 
-                registros.append(
-                    Reading(
-                        customer=customer,
-                        period=date(2025, month, 1),
-                        current_reading=current_reading or Decimal("0.00"),
-                        previous_reading=previous_reading or Decimal("0.00"),
-                        consumption=consumption or Decimal("0.00"),
-                        total_water = total_amount,
-                        total_sewer = customer.category.price_sewer,
-                        total_fixed_charge = total_fixed_charge,
-                        total_amount=total_amount + customer.category.price_sewer + total_fixed_charge,
-                        paid=paid
-                    )
-                )
+                # registros.append(
+                #     Reading(
+                #         customer=customer,
+                #         period=date(2025, month, 1),
+                #         current_reading=current_reading or Decimal("0.00"),
+                #         previous_reading=previous_reading or Decimal("0.00"),
+                #         consumption=consumption or Decimal("0.00"),
+                #         total_water = total_amount,
+                #         total_sewer = customer.category.price_sewer,
+                #         total_fixed_charge = total_fixed_charge,
+                #         total_amount=total_amount + customer.category.price_sewer + total_fixed_charge,
+                #         paid=paid
+                #     )
+                # )
 
-            # print(codigo,"------")
+                print(customer)
 
+    
+                # print(codigo,"------")
+        return Response({"message": "Lecturas importadas correctamente"}, status=status.HTTP_200_OK)
         # Inserción masiva ignorando duplicados
         with transaction.atomic():
             
             # Guardar primero los readings
             Reading.objects.bulk_create(registros, ignore_conflicts=True)
-
+    
             readings = Reading.objects.all()
 
             # 3. Preparar debts
@@ -1349,7 +1369,7 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             meses_texto = to_none_if_empty(row.Meses)
             total = to_decimal_or_none(row.Agua)
 
-            if year != 2025:
+            if year != 2026:
                 if not meses_texto:
                     errores.append({"codigo": codigo, "anio": year, "total": total, "error": "Campo 'Meses' vacio"})
                     continue
@@ -1368,14 +1388,28 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 # Calcular montos con precisión decimal
                 total_water = (Decimal(total) / Decimal(len(periodos))) if (total and len(periodos) > 0) else Decimal("0.00")
                 total_sewer = Decimal(customer.category.price_sewer or 0)
-                total_fixed_charge = Decimal(total_fixed_charge or 0)
+                total_fixed_charge = Decimal(customer.category.price_fixed_charge or 0)
 
                 amount = total_water + total_sewer + total_fixed_charge
 
                 for periodo in periodos:
                     # 🔹 Obtener o crear debt en memoria, no en DB aún
+
+                    reading = Reading(
+                        customer=customer,
+                        period=periodo,
+                        current_reading=Decimal("0.000"),
+                        has_meter=customer.has_meter,
+                        total_water=total_water,
+                        total_sewer=total_sewer,
+                        total_fixed_charge=total_fixed_charge,
+                        total_amount=amount,
+                    )
+                    reading.save(skip_process=True)
+
                     debt, created = Debt.objects.get_or_create(
                         customer=customer,
+                        reading=reading,
                         period=periodo,
                         defaults={
                             "description": "Deuda importada desde Excel",
@@ -1547,8 +1581,8 @@ class CategoryViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 defaults={
                     'name': descrip,
                     'price_water': agua,
-                    'price_sewer': 0,  # Si tu Excel no trae alcantarillado
-                    'has_meter': False  # Si quieres poner un valor por defecto
+                    'price_sewer': 0,
+                    'has_meter': False  
                 }
             )
 
@@ -1603,8 +1637,7 @@ class ViaViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
             codigo = str(row.get('codigo') or '').strip()
             name = str(row.get('nombre') or '').strip()
-            codigo_via = str(row.get('tipo_dir') or '').strip()
-            # print(codigo_via)
+            codigo_via = str(row.get('tipo_dir')).zfill(2)
 
             if not name or not codigo_via:
                 
@@ -1628,7 +1661,6 @@ class ViaViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
             calle = Calle(name=name, via=via, codigo=codigo)
             calle.save()
-    
 
         return Response({"message":"ubicacion cargada"}, status=status.HTTP_200_OK)
 

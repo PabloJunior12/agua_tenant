@@ -1,11 +1,12 @@
 import datetime
 import django_filters
 import pandas as pd
+import uuid
 from django.db.models import Max, Sum, Count
 from django.utils.timezone import now, localdate
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from .models import Reading, Debt, DailyCashReport, CashBox
+from .models import Reading, Debt, DailyCashReport, CashBox, WaterMeter
 
 MESES = {
     "ENERO": 1,
@@ -188,3 +189,13 @@ def get_reading_status(reading):
         return "CUT"
 
     return "UNKNOWN"
+
+def generar_codigo_medidor_unico():
+
+    while True:
+        # Genera un código aleatorio (ej: MED-5f2e1a8d)
+        nuevo_codigo = "MED-" + uuid.uuid4().hex[:8]
+
+        # Verificar si ya existe
+        if not WaterMeter.objects.filter(code=nuevo_codigo).exists():
+            return nuevo_codigo

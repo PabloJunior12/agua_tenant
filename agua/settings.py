@@ -132,7 +132,7 @@ USE_L10N = False
 CORS_ALLOWED_ORIGINS = [
     "http://demo.localhost:4200",
     "http://pangoa.localhost:4200",
-    "http://localhost:4200",
+    "http://sanmarcos.localhost:4200",
     "http://localhost:4200",
     "https://ugm.pe"
 ]

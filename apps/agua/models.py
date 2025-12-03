@@ -683,17 +683,6 @@ class Notificacion(models.Model):
 
         return f"{self.usuario.username} - {self.mensaje[:30]}"
 
-#     state = models.BooleanField(default=True)
-#     description = models.CharField(max_length=200)
-
-#     class Meta:
-
-#         verbose_name_plural = "Tipo de metodo de pago"
-#         verbose_name = "Tipos de metodos de pagos"
-
-#     def __str__(self):
-
-#         return self.description
 
 # class Year(models.Model):
 
