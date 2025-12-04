@@ -30,6 +30,7 @@
 
         img {
             width: 140px;
+            /* height: 70px;     */
         }
 
         h3 {
@@ -95,7 +96,14 @@
     <!-- Cabecera -->
     <div class="row">
         <div class="col">
-            <img src="{% static 'images/logo.jpeg' %}" alt="Logo" class="mb-4">
+
+             {% if company_logo %}
+                <img src="{{ company_logo }}" class="mb-4"  alt="Logo">
+            {% else %}
+                <p>No hay logo disponible</p>
+            {% endif %}
+
+          
         </div>
         <div class="col">
             <div class="codigo">

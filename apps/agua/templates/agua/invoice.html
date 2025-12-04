@@ -112,11 +112,15 @@
         <!-- Encabezado -->
         <div class="header">
 
-            <img src="{% static 'images/logo.jpeg' %}" class="logo" alt="Logo">
+            {% if company_logo %}
+                <img src="{{ company_logo }}" class="logo" alt="Logo">
+            {% else %}
+                <p>No hay logo disponible</p>
+            {% endif %}
 
             <div class="company-info">
-                <h2>Municipalidad Distrital de Pangoa</h2>
-                <p>RUC: 20146673776</p>
+                <h2>{{company_name}}</h2>
+                <p>RUC: {{company_ruc}}</p>
             </div>
         </div>
 

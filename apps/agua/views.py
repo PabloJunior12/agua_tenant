@@ -911,6 +911,13 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         
         company = Company.objects.first()
 
+
+        # Ruta al logo según el RUC
+        logo_path = None
+        if company and company.ruc:
+            logo_path = request.build_absolute_uri(f"/media/{company.ruc}.jpeg")
+
+
         # obtener deudas anteriores no pagadas
         previous_debts = Debt.objects.filter(
             customer=reading.customer,
@@ -956,6 +963,7 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         html = render_to_string("agua/recibo.html", {
             "readings_context": readings_context,
             "company": company,
+            "company_logo": logo_path
         })
 
         pdf_bytes = HTML(string=html, base_url=request.build_absolute_uri('/')).write_pdf()
@@ -1489,6 +1497,13 @@ class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
         # Usamos la relación inversa para evitar consultas innecesarias
         payments_debts = invoice.invoice_debts.select_related('debt').order_by('debt__period')
         payments_concepts = invoice.invoice_concepts.select_related('concept').order_by('concept__code')
+        company = Company.objects.first()
+
+
+        # Ruta al logo según el RUC
+        logo_path = None
+        if company and company.ruc:
+            logo_path = request.build_absolute_uri(f"/media/{company.ruc}.jpeg")
 
         context = {
             "invoice": invoice,
@@ -1497,9 +1512,9 @@ class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
             "payments": payments_debts,
             "total_paid": sum((p.total for p in payments_debts), 0),
             "total_paid_concept": sum((p.total for p in payments_concepts), 0),
-            "company_name":  "Empresa",
-            "company_ruc": "99999999999",
-            "company_logo": None
+            "company_name": company.name if company else "",
+            "company_ruc": company.ruc if company else "",
+            "company_logo": logo_path,
         }
 
         template = get_template('agua/invoice.html')
