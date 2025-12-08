@@ -7,6 +7,8 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from django.conf import settings
 
+
+
 class Company(models.Model):
 
     name = models.CharField(max_length=255, verbose_name="Nombre de la empresa")
@@ -91,6 +93,11 @@ class Calle(models.Model):
 
 class Category(models.Model):
     
+    MODE_CHOICES = [
+        ('per_unit', 'Por consumo real'),
+        ('fixed_until_max', 'Fijo hasta máximo'),
+    ]
+
     codigo = models.CharField(max_length=2, null=True, blank=True)
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
@@ -103,6 +110,13 @@ class Category(models.Model):
     price_water = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Precio de agua")
     price_sewer = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Precio de alcantarillado")
     price_fixed_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    price_clean = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    billing_mode = models.CharField(
+        max_length=20,
+        choices=MODE_CHOICES,
+        default='per_unit'
+    )
 
     has_meter = models.BooleanField(default=True)
     state = models.BooleanField(default=True) 
@@ -247,16 +261,21 @@ class Reading(models.Model):
     period_start = models.DateField(null=True)
     period_end = models.DateField(null=True)
 
-
     current_reading = models.DecimalField(max_digits=10, decimal_places=3)
     previous_reading = models.DecimalField(max_digits=10, decimal_places=3, default=0.000)
     consumption = models.DecimalField(max_digits=10, decimal_places=3, default=0.000)
 
+    igv = models.IntegerField(default=18)
+
     total_water = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     total_sewer = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    total_clean = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     total_fixed_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    total_igv = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
 
+    sub_total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00) 
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+ 
     paid = models.BooleanField(default=False)
     has_meter = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -270,9 +289,58 @@ class Reading(models.Model):
 
         return f"{self.customer.full_name} - {self.period.strftime('%Y-%m')}"
 
+    def calcular_igv_simple(self, monto):
+ 
+        igv = monto * Decimal('0.18')  # Usar Decimal, no float
+        return round(igv, 2)
+
     # -------------------------------
     # Cálculos de consumo y tarifas
     # -------------------------------
+    def calculate_per_unit_tariff(self, tariff):
+
+        """
+        Modo estándar:
+        - Si NO hay max_consumption → todo por price_water
+        - Si hay max_consumption → hasta el máximo a price_water
+        y el exceso a extra_rate
+        """
+
+        consumo = self.consumption or Decimal('0.000')
+
+        # Si no hay límite configurado
+        if not tariff.max_consumption:
+            return consumo * tariff.price_water
+
+        # Hay límite
+        maximo = tariff.max_consumption
+        precio_base = tariff.price_water
+        precio_extra = tariff.extra_rate or Decimal('0.00')
+
+        consumo_base = min(consumo, maximo)
+        exceso = max(consumo - maximo, Decimal('0.000'))
+
+        return (consumo_base * precio_base) + (exceso * precio_extra)
+
+    def calculate_fixed_until_max_tariff(self, tariff):
+
+        """
+        Fijo hasta máximo y luego extra por exceso
+        """
+        consumo = self.consumption or Decimal('0.000')
+        fijo = tariff.price_water
+        maximo = tariff.max_consumption or Decimal('0.000')
+        extra = tariff.extra_rate or Decimal('0.00')
+
+        if consumo <= maximo:
+
+            return fijo
+        
+        else:
+
+            exceso = consumo - maximo
+            return fijo + (exceso * extra)
+
     def calculate_consumption(self):
 
         tariff = self.customer.category
@@ -280,6 +348,7 @@ class Reading(models.Model):
         self.has_meter = self.customer.has_meter
 
         if tariff.has_meter:
+
             # Buscar lectura anterior
             previous = Reading.objects.filter(
                 customer=self.customer,
@@ -287,47 +356,68 @@ class Reading(models.Model):
             ).order_by('-period').first()
 
             if previous:
+
                 self.previous_reading = previous.current_reading
-                self.consumption = self.current_reading - previous.current_reading
-            else:
-                self.previous_reading = Decimal('0.000')
-                self.consumption = self.current_reading
+   
+            self.consumption = Decimal(self.current_reading) - Decimal(self.previous_reading)
+
         else:
             # Sin medidor: todo fijo
             self.previous_reading = Decimal('0.000')
             self.consumption = Decimal('0.000')
 
-    def calculate_industrial_tariff(self, tariff):
-
-        """Calcula tarifa INDUSTRIAL con exceso"""
-        consumo_base = min(self.consumption, tariff.max_consumption)
-        exceso = max(0, self.consumption - tariff.max_consumption)
-        return (consumo_base * tariff.price_water) + (exceso * tariff.extra_rate)
-
     def calculate_total(self):
 
         tariff = self.customer.category
+        config = Config.objects.first()
 
-        cargo_fijo = tariff.price_fixed_charge
-        total_fixed_charge = cargo_fijo if cargo_fijo else Decimal("0.00")
-
+        # Cargo fijo
+ 
+        self.total_sewer = tariff.price_sewer or Decimal('0.00')
+        self.total_fixed_charge = tariff.price_fixed_charge or Decimal('0.00')
+        self.total_clean = tariff.price_clean or Decimal('0.00')
+        
         if tariff.has_meter:
 
-            if tariff.max_consumption:
+            if tariff.billing_mode == 'per_unit':
+                
+                self.total_water = self.calculate_per_unit_tariff(tariff)
 
-                self.total_water = self.calculate_industrial_tariff(tariff)
+            elif tariff.billing_mode == 'fixed_until_max':
+
+                self.total_water = self.calculate_fixed_until_max_tariff(tariff)
 
             else:
 
                 self.total_water = self.consumption * tariff.price_water
         else:
+
+            # Sin medidor
             self.total_water = tariff.price_water
             self.previous_reading = Decimal('0.000')
             self.consumption = Decimal('0.000')
 
-        self.total_sewer = tariff.price_sewer
-        self.total_fixed_charge = total_fixed_charge
-        self.total_amount = self.total_water + self.total_sewer + self.total_fixed_charge
+        # PARA SAN MARCOS
+        subtotal = self.total_water + self.total_sewer
+
+        if config.add_igv_category:
+            self.total_igv = self.calcular_igv_simple(subtotal)
+        else:
+            self.total_igv = Decimal('0.00')
+
+        self.sub_total_amount = (
+            
+            self.total_water +
+            self.total_sewer +
+            self.total_igv
+        )
+
+        self.total_amount = (
+
+            self.sub_total_amount +
+            self.total_clean +
+            self.total_fixed_charge
+        )
 
         return self.total_amount
 
@@ -412,6 +502,20 @@ class Reading(models.Model):
                 debt=debt,
                 concept=CashConcept.objects.get(code="003"),
                 amount=self.total_fixed_charge
+            )
+
+        if self.total_clean > 0:
+            DebtDetail.objects.create(
+                debt=debt,
+                concept=CashConcept.objects.get(code="004"),
+                amount=self.total_clean
+            )
+
+        if self.total_igv > 0:
+            DebtDetail.objects.create(
+                debt=debt,
+                concept=CashConcept.objects.get(code="005"),
+                amount=self.total_igv
             )
 
     # -------------------------------
@@ -682,6 +786,10 @@ class Notificacion(models.Model):
     def __str__(self):
 
         return f"{self.usuario.username} - {self.mensaje[:30]}"
+
+class Config(models.Model):
+
+    add_igv_category = models.BooleanField(default=False, verbose_name="Incluir IGV en tarifas")
 
 
 # class Year(models.Model):

@@ -199,3 +199,8 @@ def generar_codigo_medidor_unico():
         # Verificar si ya existe
         if not WaterMeter.objects.filter(code=nuevo_codigo).exists():
             return nuevo_codigo
+        
+def calcular_igv_simple(monto):
+ 
+        igv = monto * Decimal('0.18')  # Usar Decimal, no float
+        return round(igv, 2)

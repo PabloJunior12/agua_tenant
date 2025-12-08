@@ -2,11 +2,12 @@ from rest_framework import serializers
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils.timezone import now
 from django.conf import settings
-from .models import Customer, WaterMeter, CashBox, Company, Notificacion, CashOutflow, InvoiceConcept, CashMovement, DebtDetail, CashConcept, Reading, ReadingGeneration, Invoice, Category, Via, Calle, InvoiceDebt, Zona, Debt, InvoicePayment, DailyCashReport
+from .models import Customer, WaterMeter, CashBox, Company, Notificacion, Config, CashOutflow, InvoiceConcept, CashMovement, DebtDetail, CashConcept, Reading, ReadingGeneration, Invoice, Category, Via, Calle, InvoiceDebt, Zona, Debt, InvoicePayment, DailyCashReport
 from .utils import next_month_date, get_reading_status
 from django.db import transaction
 from django.db.models import Sum
 from decimal import Decimal
+from rest_framework.exceptions import ValidationError
 
 import os
 
@@ -219,7 +220,7 @@ class ReadingSerializer(serializers.ModelSerializer):
 
         if qs.exists():
 
-            raise serializers.ValidationError(
+            raise ValidationError(
                 "Ya existe una lectura registrada para este cliente en el mismo mes."
             )
 
@@ -232,16 +233,25 @@ class ReadingSerializer(serializers.ModelSerializer):
             customer=customer, period__gt=period
         ).order_by("period").first()
 
-        if prev_reading and current_reading < prev_reading.current_reading:
-            raise serializers.ValidationError(
-                {"current_reading": f"La lectura no puede ser menor que la de {prev_reading.period} ({prev_reading.current_reading})."}
-            )
+        # --- VALIDACIÓN LECTURA MENOR ---
+        if prev_reading:
+            # Caso normal: hay historial real
+            if current_reading < prev_reading.current_reading:
+                raise ValidationError(f"La lectura no puede ser menor que la de {prev_reading.period} ({prev_reading.current_reading}).")
+        else:
+            # Caso MIGRACIÓN: no hay historial, se compara contra previous_reading manual
+            manual_previous = data.get('previous_reading', Decimal('0.000'))
 
-        if next_reading and current_reading > next_reading.current_reading:
-            raise serializers.ValidationError(
-                {"current_reading": f"La lectura no puede ser mayor que la de {next_reading.period} ({next_reading.current_reading})."}
-            )
+            if current_reading < manual_previous:
+                raise ValidationError("La lectura actual no puede ser menor que la lectura anterior ingresada manualmente.")
 
+        # --- VALIDACIÓN LECTURA MAYOR ---
+        if next_reading:
+
+            if current_reading > next_reading.current_reading:
+
+                raise ValidationError(f"La lectura no puede ser mayor que la de {next_reading.period} ({next_reading.current_reading}).")
+            
         # 2) Evitar registrar un mes anterior si ya existe uno posterior
         future_qs = Reading.objects.filter(
             customer=customer,
@@ -249,7 +259,7 @@ class ReadingSerializer(serializers.ModelSerializer):
             paid=True
         )
         if future_qs.exists():
-            raise serializers.ValidationError(
+            raise ValidationError(
                 "No se puede editar porque existen lecturas posteriores ya pagadas."
             )
 
@@ -266,14 +276,14 @@ class ReadingSerializer(serializers.ModelSerializer):
 
             # Comparamos solo año y mes (en caso de que no uses día=1):
             if (period.year != expected_next_date.year) or (period.month != expected_next_date.month):
-                raise serializers.ValidationError(
+                raise ValidationError(
                     "Debes registrar el mes consecutivo. El siguiente mes esperado es: "
                     f"{expected_next_date.strftime('%B %Y')}"
                 )
 
             # (Opcional) Verificar que current_reading >= last_reading.current_reading
             if current_reading < last_reading.current_reading:
-                raise serializers.ValidationError(
+                raise ValidationError(
                     "La lectura actual no puede ser menor que la última lectura registrada."
                 )
         else:
@@ -501,6 +511,13 @@ class CashOutflowSerializer(serializers.ModelSerializer):
     class Meta:
         model = CashOutflow
         fields = "__all__"
+
+class ConfigSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        
+        model = Config
+        fields = '__all__'
 
 # class PaymentMethodSerializer(serializers.ModelSerializer):
 

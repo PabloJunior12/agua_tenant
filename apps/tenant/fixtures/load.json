@@ -153,5 +153,17 @@
       "parent": null,
       "order" : 13
     }
+  },
+  {
+    "model": "user.module",
+    "pk": 14,
+    "fields": {
+      "name": "Configuracion",
+      "code": "setting",
+      "path": "/dashboard/setting",
+      "icon": "fa-solid fa-gear",
+      "parent": null,
+      "order" : 14
+    }
   }
 ]

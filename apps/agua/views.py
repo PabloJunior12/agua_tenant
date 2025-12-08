@@ -25,10 +25,10 @@ from collections import defaultdict
 from babel.dates import format_date
 from decimal import Decimal
 from apps.user.models import User
-from .models import Customer, DailyCashReport, WaterMeter, CashOutflow, Notificacion, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
+from .models import Customer, Config, DailyCashReport, WaterMeter, CashOutflow, Notificacion, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
 from .serializers import (
     CustomerSerializer, MorosidadSerializer, WaterMeterSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
-    ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer, NotificacionSerializer
+    ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ConfigSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer, NotificacionSerializer
 )
 from apps.agua.core.permissions import GlobalPermissionMixin
 
@@ -40,10 +40,10 @@ import os
 import tempfile
 import zipfile
 from django.contrib.auth import authenticate
-from rest_framework.authtoken.models import Token
-from .utils import ReadingFilter, DebtFilter, to_none_if_empty, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico
-
 from django.db import connection
+from rest_framework.authtoken.models import Token
+from .utils import calcular_igv_simple, ReadingFilter, DebtFilter, to_none_if_empty, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico
+
 
 from .core.mixins import TenantSafeMixin
 
@@ -731,6 +731,12 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             r.save()
             prev_value = r.current_reading
 
+    @action(detail=False, methods=['get'], url_path='has-history/(?P<customer_id>[^/.]+)')
+    def has_history(self, request, customer_id=None):
+        
+        exists = Reading.objects.filter(customer_id=customer_id).exists()
+        return Response({'hasHistory': exists})
+
     @action(detail=False, methods=['post'])
     def import_excel(self, request):
 
@@ -996,6 +1002,7 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         if ReadingGeneration.objects.filter(period=period_date).exists():
             return Response({"error": f"Ya se generaron lecturas para {period_str}."}, status=400)
 
+        config = Config.objects.first()
         customers = Customer.objects.filter(has_meter=False)
         created = 0
         skipped_existing = 0
@@ -1015,6 +1022,13 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
             tariff = customer.category
 
+            if config.add_igv_category:
+              total_igv = calcular_igv_simple(tariff.price_water + tariff.price_sewer)
+            else:
+              total_igv = Decimal('0.00')
+
+            sub_total_amount = tariff.price_water + tariff.price_sewer + total_igv
+
             # Crear lectura
             Reading.objects.create(
                 customer=customer,
@@ -1025,7 +1039,10 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 total_water=tariff.price_water,
                 total_sewer=tariff.price_sewer,
                 total_fixed_charge=tariff.price_fixed_charge,
-                total_amount=tariff.price_water + tariff.price_sewer + tariff.price_fixed_charge,
+                total_clean=tariff.price_clean,
+                total_igv=total_igv,
+                sub_total_amount=sub_total_amount,
+                total_amount=sub_total_amount + tariff.price_fixed_charge + tariff.price_clean,
                 paid=False,
                 date_of_issue=request.data.get("date_of_issue"),
                 date_of_due=request.data.get("date_of_due"),
@@ -1219,6 +1236,8 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
+
+        config = Config.objects.first()
         data = request.data
         customer_id = data.get("customer")
         period_str = data.get("period")
@@ -1244,15 +1263,25 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             "001": CashConcept.objects.get(code="001"),  # Agua
             "002": CashConcept.objects.get(code="002"),  # Desagüe
             "003": CashConcept.objects.get(code="003"),  # Cargo fijo
+            "004": CashConcept.objects.get(code="004"),  # clean
+            "005": CashConcept.objects.get(code="005"),  # igv
         }
 
         # Calcular montos base
         total_fixed_charge = customer.category.price_fixed_charge
         total_water = customer.category.price_water
         total_sewer = customer.category.price_sewer
-        total_amount = total_water + total_sewer + total_fixed_charge
+        total_clean = customer.category.price_clean
+        
+        if config.add_igv_category:
+           total_igv = calcular_igv_simple(total_water + total_sewer)
+        else:
+           total_igv = Decimal('0.00')
 
-        # ✅ Crear lectura asociada (sin procesos automáticos)
+        sub_total_amount = total_water + total_sewer + total_igv
+        total_amount = sub_total_amount + total_fixed_charge + total_clean
+
+        # Crear lectura asociada (sin procesos automáticos)
         reading = Reading(
             customer=customer,
             period=normalized_period,
@@ -1261,6 +1290,9 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             total_water=total_water,
             total_sewer=total_sewer,
             total_fixed_charge=total_fixed_charge,
+            total_clean=total_clean,
+            total_igv=total_igv,
+            sub_total_amount=sub_total_amount,
             total_amount=total_amount,
         )
         reading.save(skip_process=True)
@@ -1287,6 +1319,14 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         if total_fixed_charge > 0:  
 
            DebtDetail.objects.create(debt=debt, concept=conceptos["003"], amount=total_fixed_charge)
+
+        if total_clean > 0:  
+
+           DebtDetail.objects.create(debt=debt, concept=conceptos["004"], amount=total_clean)
+
+        if total_igv > 0:  
+
+           DebtDetail.objects.create(debt=debt, concept=conceptos["005"], amount=total_igv)
 
         # Respuesta
         serializer = self.get_serializer(debt)
@@ -1730,6 +1770,12 @@ class CashOutflowViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     queryset = CashOutflow.objects.all().order_by('-id')
     serializer_class = CashOutflowSerializer
+    pagination_class = CustomPagination
+
+class ConfigViewSet(TenantSafeMixin,viewsets.ModelViewSet):
+
+    queryset = Config.objects.all().order_by('-id')
+    serializer_class = ConfigSerializer
     pagination_class = CustomPagination
 
 class BaseMorosidadListView(ListAPIView):
