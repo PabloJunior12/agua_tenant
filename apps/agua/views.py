@@ -38,14 +38,15 @@ import io
 import pandas as pd
 import os
 import tempfile
+import requests
+import json
 import zipfile
 from django.contrib.auth import authenticate
 from django.db import connection
 from rest_framework.authtoken.models import Token
 from .utils import calcular_igv_simple, ReadingFilter, DebtFilter, to_none_if_empty, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico
-
-
 from .core.mixins import TenantSafeMixin
+
 
 class CustomPagination(PageNumberPagination):
 
@@ -1817,3 +1818,31 @@ class MorosidadOverdueView(BaseMorosidadListView):
             .filter(unpaid_months__gt=2)
             .order_by('codigo')
         )
+
+class CrearCargoCulqiView(TenantSafeMixin,APIView):
+
+    def post(self, request):
+
+        SECRET_KEY = "sk_test_Du96J7FKRrKNAmdM"
+        token = request.data.get("token")
+        amount = int(request.data.get("amount")) * 100
+
+        headers = {
+            "Authorization": f"Bearer {SECRET_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "amount": amount,
+            "currency_code": "PEN",
+            "email": "cliente@test.com",
+            "source_id": token
+        }
+
+        r = requests.post(
+            "https://api.culqi.com/v2/charges",
+            json=payload,
+            headers=headers
+        )
+
+        return Response(r.json(), status=r.status_code)
