@@ -137,16 +137,16 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
     @action(detail=False, methods=["get"], url_path="by-code")
     def by_code_and_dni(self, request):
         codigo = request.query_params.get("codigo")
-        dni = request.query_params.get("dni")
-
-        if not codigo or not dni:
+        # dni = request.query_params.get("dni")
+        #  or not dni
+        if not codigo:
             return Response(
-                {"error": "Debe proporcionar codigo y dni/ruc"},
+                {"error": "Debe proporcionar codigo de suministro"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
+        # , number=dni
         try:
-            customer = Customer.objects.get(codigo=codigo, number=dni)
+            customer = Customer.objects.get(codigo=codigo)
         except Customer.DoesNotExist:
             return Response(
                 {"error": "Cliente no encontrado"},
