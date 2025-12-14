@@ -3,8 +3,8 @@ from rest_framework.response import Response
 from rest_framework import status, viewsets
 from django.contrib.auth import authenticate
 from django_tenants.utils import schema_context, get_tenant_model
-from .models import Client
-from .serializers import ClientSerializer
+from .models import Client, GlobalBackup, TenantBackup
+from .serializers import ClientSerializer, GlobalBackupSerializer, TenantBackupSerializer
 from apps.user.models import User,UserPermission, Module
 from django.db import connection, transaction
 from apps.agua.models import Company
@@ -14,6 +14,11 @@ import csv
 import io
 import requests
 from django.http import HttpResponse
+from django.core.management import call_command
+import os
+from django.http import FileResponse, Http404
+from rest_framework.views import APIView
+
 
 class ValidateTenantView(APIView):
 
@@ -335,3 +340,83 @@ class MetasImportCsvView(APIView):
         response['Content-Disposition'] = f'attachment; filename="metas_{year}.csv"'
 
         return response
+
+class GlobalBackupView(APIView):
+
+    def get(self, request):
+
+        backups = GlobalBackup.objects.all().order_by("-created_at")
+        serializer = GlobalBackupSerializer(backups, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+
+        user = request.user.username if request.user.is_authenticated else "manual"
+        call_command("backup_global", user=user)
+        return Response(
+            {"message": "Backup global iniciado"},
+            status=status.HTTP_201_CREATED
+        )
+    
+class GlobalBackupDownloadView(APIView):
+
+    def get(self, request, backup_id):
+
+        try:
+            backup = GlobalBackup.objects.get(id=backup_id)
+
+        except GlobalBackup.DoesNotExist:
+
+            raise Http404("Backup no encontrado")
+
+        if not os.path.exists(backup.file_path):
+
+            raise Http404("Archivo no existe en el servidor")
+
+        response = FileResponse(
+            open(backup.file_path, "rb"),
+            as_attachment=True,
+            filename=backup.file_name
+        )
+
+        return response
+
+class TenantBackupView(APIView):
+
+    def get(self, request, tenant_id):
+
+        backups = TenantBackup.objects.filter(
+            tenant_id=tenant_id
+        ).order_by("-created_at")
+
+        serializer = TenantBackupSerializer(backups, many=True)
+
+        return Response(serializer.data)
+
+    def post(self, request, tenant_id):
+
+        tenant = Client.objects.get(id=tenant_id)
+        user = request.user.username if request.user.is_authenticated else "manual"
+
+        call_command(
+            "backup_tenant",
+            schema=tenant.schema_name,
+            user=user
+        )
+
+        return Response(
+            {"message": "Backup del tenant iniciado"},
+            status=201
+        )
+
+class TenantBackupDownloadView(APIView):
+
+    def get(self, request, backup_id):
+
+        backup = TenantBackup.objects.get(id=backup_id)
+
+        return FileResponse(
+            open(backup.file_path, "rb"),
+            as_attachment=True,
+            filename=backup.file_name
+        )

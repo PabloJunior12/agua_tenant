@@ -85,9 +85,6 @@ TEMPLATES = [
     },
 ]
 
-# -----------------------------------
-# REST FRAMEWORK
-# -----------------------------------
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework.authentication.TokenAuthentication",
@@ -97,9 +94,6 @@ REST_FRAMEWORK = {
 
 WSGI_APPLICATION = "agua.wsgi.application"
 
-# -----------------------------------
-# DATABASE
-# -----------------------------------
 DATABASES = {
     "default": {
         "ENGINE": "django_tenants.postgresql_backend",
@@ -110,17 +104,9 @@ DATABASES = {
         "PORT": "5432",
     }
 }
-
-# -----------------------------------
-# AUTH USER MODEL
-# -----------------------------------
-# Valor por defecto → se cambiará dinámicamente en el middleware
+ 
 AUTH_USER_MODEL = "user.User"
-# AUTH_USER_MODEL = "user.User"
 
-# -----------------------------------
-# OTROS
-# -----------------------------------
 X_FRAME_OPTIONS = "ALLOWALL"
 
 LANGUAGE_CODE = "es"
@@ -151,3 +137,11 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# if os.name == "nt":  # Windows
+BACKUP_GLOBAL_PATH = BASE_DIR / "backups" / "global"
+# else:  # Linux
+#     BACKUP_GLOBAL_PATH = Path("/var/backups/agua/global")
+BACKUP_TENANT_PATH = BASE_DIR / "backups" / "tenants"
