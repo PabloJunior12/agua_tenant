@@ -106,9 +106,14 @@
             {% for factura in concepto.facturas %}
                 {% if factura.total > 0 %}
                     <tr>
-                        <td>{{ factura.code }}</td>
+                        <td>
+                            {{ factura.code }} 
+                            {% if factura.number_reference %}
+                            {{ factura.number_reference }}
+                            {% endif %}
+                        </td>
                         <td>{{ factura.date|date:"d/m/Y" }}</td>
-                        <td>{{ factura.cliente }}</td>
+                        <td>{{factura.cliente_codigo}} {{ factura.cliente }}</td>
                         <td>{{ factura.direccion }}</td>
                         <td>
                             {% if factura.periodo %}

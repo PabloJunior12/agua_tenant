@@ -128,7 +128,13 @@
 
         <!-- Datos de factura -->
         <div class="invoice-info">
-            <p><strong>Recibo Nº:</strong> {{ invoice.code }}</p>
+            <p><strong>Nº Recibo:</strong> {{ invoice.code }} 
+
+             {% if invoice.number_reference %}
+             - {{ invoice.number_reference }}
+             {% endif %}
+
+            </p>
             <p><strong>Fecha:</strong> {{ invoice.date|date:"d/m/Y" }}</p>
         </div>
 

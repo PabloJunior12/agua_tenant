@@ -621,11 +621,13 @@ class Invoice(models.Model):
 
     name_optional = models.CharField(max_length=200, blank=True, null=True)
     number_optional = models.CharField(max_length=15, blank=True, null=True)
+
     code = models.CharField(max_length=7, unique=True, editable=False)
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='invoices')
     date = models.DateField(auto_now_add=True)
     total = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     reference = models.CharField(max_length=100, blank=True, null=True)  # N° operación bancaria, etc.
+    number_reference = models.CharField(max_length=20, blank=True, null=True) 
     notes = models.TextField(blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -790,7 +792,6 @@ class Notificacion(models.Model):
 class Config(models.Model):
 
     add_igv_category = models.BooleanField(default=False, verbose_name="Incluir IGV en tarifas")
-
 
 # class Year(models.Model):
 

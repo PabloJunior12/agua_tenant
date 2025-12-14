@@ -464,8 +464,10 @@ class CashBoxViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 if key not in facturas_dict:
                     facturas_dict[key] = {
                         "code": inv.code,
+                        "number_reference" : inv.number_reference,
                         "date": inv.date,
                         "cliente": inv.customer.full_name,
+                        "cliente_codigo": inv.customer.codigo,
                         "direccion": inv.customer.address,
                         "pagos": defaultdict(float),
                         "total": 0,
@@ -542,7 +544,7 @@ class CashBoxViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
 class DailyCashReportViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     
-    queryset = DailyCashReport.objects.all()
+    queryset = DailyCashReport.objects.all().order_by('-date')
     serializer_class = DailyCashReportSerializer
 
     @action(detail=True, methods=["get"])
@@ -581,8 +583,10 @@ class DailyCashReportViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 if key not in facturas_dict:
                     facturas_dict[key] = {
                         "code": inv.code,
+                        "number_reference" : inv.number_reference,
                         "date": inv.date,
                         "cliente": inv.customer.full_name,
+                        "cliente_codigo": inv.customer.codigo,
                         "direccion": inv.customer.address,
                         "pagos": defaultdict(float),
                         "total": 0,
@@ -1846,3 +1850,130 @@ class CrearCargoCulqiView(TenantSafeMixin,APIView):
         )
 
         return Response(r.json(), status=r.status_code)
+    
+class DashboardSummaryAPIView(TenantSafeMixin, APIView):
+
+    def get(self, request):
+
+        today = date.today()
+        month_start = today.replace(day=1)
+
+        # 1️⃣ Clientes totales
+        total_customers = Customer.objects.count()
+
+        # 2️⃣ Clientes con deuda
+        customers_with_debt = (
+            Debt.objects
+            .filter(paid=False)
+            .values('customer')
+            .distinct()
+            .count()
+        )
+
+        # 3️⃣ Recaudación del mes
+        monthly_revenue = (
+            InvoicePayment.objects
+            .filter(created_at__date__gte=month_start)
+            .aggregate(total=Sum('total'))['total'] or 0
+        )
+
+        # 4️⃣ Recaudación del día
+        daily_revenue = (
+            InvoicePayment.objects
+            .filter(created_at__date=today)
+            .aggregate(total=Sum('total'))['total'] or 0
+        )
+
+        # 5️⃣ Top 5 clientes con más deuda
+        top_debtors = (
+            Debt.objects
+            .filter(paid=False)
+            .values(
+                'customer__id',
+                'customer__full_name'
+            )
+            .annotate(total_debt=Sum('amount'))
+            .order_by('-total_debt')[:5]
+        )
+
+        weekly_income = []
+
+        for i in range(4, 0, -1):
+            start_week = today - timedelta(days=i * 7)
+            end_week = start_week + timedelta(days=6)
+
+            total = (
+                InvoicePayment.objects
+                .filter(
+                    created_at__date__gte=start_week,
+                    created_at__date__lte=end_week
+                )
+                .aggregate(total=Sum('total'))['total'] or 0
+            )
+
+            weekly_income.append({
+                "label": f"Semana {5 - i}",
+                "total": float(total)
+            })
+
+        # 6️⃣ Deuda por zona
+        debt_by_zone = (
+            Debt.objects
+            .filter(paid=False, customer__zona__isnull=False)
+            .values(
+                'customer__zona__id',
+                'customer__zona__name'
+            )
+            .annotate(total_debt=Sum('amount'))
+            .order_by('-total_debt')
+        )
+
+        # Total deuda pendiente
+        total_debt = (
+            Debt.objects
+            .filter(paid=False)
+            .aggregate(total=Sum('amount'))['total'] or 0
+        )
+
+        # Total recaudado (histórico)
+        total_collected = (
+            Invoice.objects
+            .aggregate(total=Sum('total'))['total'] or 0
+        )
+
+
+        return Response({
+            "cards": [
+                {
+                    "title": "Clientes Totales",
+                    "icono" : "fa-solid fa-users",
+                    "value": total_customers,
+                },
+                {
+                    "title": "Clientes con Deuda",
+                    "icono" : "fa-solid fa-user-slash",
+                    "value": customers_with_debt,
+                },
+                {
+                    "title": "Recaudación del Mes",
+                    "icono" : "fa-solid fa-chart-line",          
+                    "value": f"S/ {monthly_revenue}",
+                },
+                {
+                    "title": "Recaudación del Día",
+                    "icono" : "fa-solid fa-calendar-day",  
+                    "value": f"S/ {daily_revenue}",
+                },
+            ],
+
+            "top_debtors": top_debtors,
+            "weekly_income": weekly_income,
+            "charts": {
+                "weekly_income": weekly_income,
+                "debt_by_zone": debt_by_zone
+            },
+            "financial_comparison": {
+                "debt": float(total_debt),
+                "collected": float(total_collected)
+            },
+        })
