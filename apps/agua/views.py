@@ -1,13 +1,13 @@
 from django.shortcuts import render, get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from django.template.loader import render_to_string, get_template
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.conf import settings
 from django.utils.timezone import now, localdate
 from django.utils.formats import date_format
 from django.db import transaction
 from django.db.models import Max, Sum, Count, Min, Q
-
+from django.views.decorators.csrf import csrf_exempt
 from dateutil.relativedelta import relativedelta
 
 from rest_framework.views import APIView
@@ -25,7 +25,7 @@ from collections import defaultdict
 from babel.dates import format_date
 from decimal import Decimal
 from apps.user.models import User
-from .models import Customer, Config, DailyCashReport, WaterMeter, CashOutflow, Notificacion, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
+from .models import Customer, Config, Pay, DailyCashReport, WaterMeter, CashOutflow, Notificacion, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
 from .serializers import (
     CustomerSerializer, MorosidadSerializer, WaterMeterSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
     ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ConfigSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer, NotificacionSerializer
@@ -41,12 +41,12 @@ import tempfile
 import requests
 import json
 import zipfile
-from django.contrib.auth import authenticate
-from django.db import connection
-from rest_framework.authtoken.models import Token
-from .utils import calcular_igv_simple, ReadingFilter, DebtFilter, to_none_if_empty, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico
-from .core.mixins import TenantSafeMixin
 
+from rest_framework.authtoken.models import Token
+from .utils import calcular_igv_simple, ReadingFilter, DebtFilter, to_none_if_empty, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
+from .core.mixins import TenantSafeMixin
+from requests.auth import HTTPBasicAuth
+import mercadopago
 
 class CustomPagination(PageNumberPagination):
 
@@ -1823,34 +1823,6 @@ class MorosidadOverdueView(BaseMorosidadListView):
             .order_by('codigo')
         )
 
-class CrearCargoCulqiView(TenantSafeMixin,APIView):
-
-    def post(self, request):
-
-        SECRET_KEY = "sk_test_Du96J7FKRrKNAmdM"
-        token = request.data.get("token")
-        amount = int(request.data.get("amount")) * 100
-
-        headers = {
-            "Authorization": f"Bearer {SECRET_KEY}",
-            "Content-Type": "application/json"
-        }
-
-        payload = {
-            "amount": amount,
-            "currency_code": "PEN",
-            "email": "cliente@test.com",
-            "source_id": token
-        }
-
-        r = requests.post(
-            "https://api.culqi.com/v2/charges",
-            json=payload,
-            headers=headers
-        )
-
-        return Response(r.json(), status=r.status_code)
-    
 class DashboardSummaryAPIView(TenantSafeMixin, APIView):
 
     def get(self, request):
@@ -1977,3 +1949,141 @@ class DashboardSummaryAPIView(TenantSafeMixin, APIView):
                 "collected": float(total_collected)
             },
         })
+
+class crear_preference(TenantSafeMixin,APIView):
+
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+
+        sdk = mercadopago.SDK(settings.MP_ACCESS_TOKEN)
+
+        payment_data = {
+            "transaction_amount": float(request.data.get("amount")),
+            "token": request.data.get("token"),
+            "installments": int(request.data.get("installments")),
+            "payment_method_id": request.data.get("paymentMethodId"),  # ✅
+            "issuer_id": request.data.get("issuerId"),                  # ✅
+            "payer": {
+                "email": request.data.get("cardholderEmail"),           # ✅
+                "identification": {
+                    "type": request.data.get("identificationType"),     # ✅
+                    "number": request.data.get("identificationNumber")  # ✅
+                }
+            },
+            "description": "Pago servicio de agua",
+            "external_reference": str(request.data.get("recibo_id", "0"))
+        }
+
+        payment = sdk.payment().create(payment_data)
+
+        if payment["status"] != 201:
+            return Response(payment, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(payment["response"], status=status.HTTP_201_CREATED)
+
+class CrearPreferenceYape(TenantSafeMixin, APIView):
+
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+
+        sdk = mercadopago.SDK(settings.MP_ACCESS_TOKEN)
+
+        preference_data = {
+            "items": [
+                {
+                    "title": "Pago servicio de agua",
+                    "quantity": 1,
+                    "unit_price": float(request.data["amount"])
+                }
+            ],
+            "payment_methods": {
+                "included_payment_methods": [
+                    {"id": "yape"}
+                ]
+            },
+            "external_reference": str(request.data["recibo_id"]),
+            "back_urls": {
+                "success": "https://tu-frontend/pago-exitoso",
+                "failure": "https://tu-frontend/pago-error",
+                "pending": "https://tu-frontend/pago-pendiente"
+            },
+            "auto_return": "approved"
+        }
+
+        preference = sdk.preference().create(preference_data)
+
+        return Response({
+            "preference_id": preference["response"]["id"]
+        }, status=201)
+
+class MercadoPagoWebhookView(TenantSafeMixin, APIView):
+
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+
+        body = request.data
+
+        if body.get("type") != "payment":
+
+           return Response({"ignored": True}, status=200)
+
+        payment_id = body.get("data", {}).get("id")
+        if not payment_id:
+            return Response({"error": "no payment id"}, status=400)
+
+        r = requests.get(
+            f"https://api.mercadopago.com/v1/payments/{payment_id}",
+            headers={
+                "Authorization": f"Bearer {settings.MP_ACCESS_TOKEN}"
+            },
+            timeout=10
+        )
+
+        if r.status_code != 200:
+            return Response({"error": "mp error"}, status=500)
+
+        payment = r.json()
+
+        # 3️⃣ Procesar pago (multitenant)
+        self.procesar_pago(payment)
+
+        return Response({"ok": True}, status=200)
+
+    def procesar_pago(self, payment):
+
+        if payment["status"] != "approved":
+
+           return
+
+        ref = payment.get("external_reference")
+
+        if not ref:
+            return
+
+        try:
+
+            ref = json.loads(ref)
+        
+        except Exception:
+
+            return
+
+        if Pay.objects.filter(payment_id=payment["id"]).exists():
+                
+            return
+
+        Pay.objects.create(
+            payment_id=str(payment["id"]),
+            status=payment["status"],
+            payment_method=payment["payment_method_id"],
+            amount=payment["transaction_amount"],
+            raw=payment
+        )
+
+          

@@ -40,7 +40,6 @@ class UserSerializer(serializers.ModelSerializer):
             'is_active', 'is_staff', 'is_admin', 'password', 'permissions','global_permissions'
         ]
 
-
     def create(self, validated_data):
 
         request_user = self.context['request'].user

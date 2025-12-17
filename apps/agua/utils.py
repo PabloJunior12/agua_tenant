@@ -2,6 +2,7 @@ import datetime
 import django_filters
 import pandas as pd
 import uuid
+from django.db import transaction
 from django.db.models import Max, Sum, Count
 from django.utils.timezone import now, localdate
 from datetime import date
@@ -204,3 +205,29 @@ def calcular_igv_simple(monto):
  
         igv = monto * Decimal('0.18')  # Usar Decimal, no float
         return round(igv, 2)
+
+def procesar_pago(payment):
+
+    if payment["status"] != "approved":
+        return
+
+    # payment_id = str(payment["id"])
+
+    # # idempotencia
+    # if Pago.objects.filter(payment_id=payment_id).exists():
+    #    return
+ 
+    # with transaction.atomic():
+
+    #     # guardar pago
+    #     Pago.objects.create(
+           
+    #         payment_id=payment_id,
+    #         status=payment["status"],
+    #         payment_method=payment["payment_method_id"],
+    #         amount=payment["transaction_amount"],
+    #         raw=payment
+    #     )
+
+        # cerrar recibo
+      

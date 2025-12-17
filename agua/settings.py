@@ -145,3 +145,10 @@ BACKUP_GLOBAL_PATH = BASE_DIR / "backups" / "global"
 # else:  # Linux
 #     BACKUP_GLOBAL_PATH = Path("/var/backups/agua/global")
 BACKUP_TENANT_PATH = BASE_DIR / "backups" / "tenants"
+
+# IZIPAY_USERNAME="42833638"
+# IZIPAY_PASSWORD="testpassword_yVxNzs4WcPwlvlwZzwhdtzqOllwCxQVuwXTmaPlO0FKM8"
+# IZIPAY_API="https://api.micuentaweb.pe/api-payment/V4/Charge/CreatePayment"
+# IZIPAY_PUBLIC_KEY="42833638:testpublickey_fdkgHbUeauwjMqY7UCYhVoZXJQcpylk3gNkreUHuzxefx"
+
+MP_ACCESS_TOKEN="TEST-8114344013274278-121621-2cdbe4b4ccfc89ad639721884c9a7145-121866494"
