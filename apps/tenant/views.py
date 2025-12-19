@@ -18,7 +18,9 @@ from django.core.management import call_command
 import os
 from django.http import FileResponse, Http404
 from rest_framework.views import APIView
-
+import mercadopago
+from django.conf import settings
+import json
 
 class ValidateTenantView(APIView):
 
@@ -420,3 +422,83 @@ class TenantBackupDownloadView(APIView):
             as_attachment=True,
             filename=backup.file_name
         )
+
+class MercadoPagoWebhookView(APIView):
+
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+
+        body = request.data
+
+        if body.get("type") != "payment":
+
+           return Response({"ignored": True}, status=200)
+
+        payment_id = body.get("data", {}).get("id")
+        if not payment_id:
+            return Response({"error": "no payment id"}, status=400)
+
+        r = requests.get(
+            f"https://api.mercadopago.com/v1/payments/{payment_id}",
+            headers={
+                "Authorization": f"Bearer {settings.MP_ACCESS_TOKEN}"
+            },
+            timeout=10
+        )
+
+        if r.status_code != 200:
+            return Response({"error": "mp error"}, status=500)
+
+        payment = r.json()
+
+        # 3️⃣ Procesar pago (multitenant)
+        self.procesar_pago(payment)
+
+        return Response({"ok": True}, status=200)
+
+    def procesar_pago(self, payment):
+
+        if payment["status"] != "approved":
+
+           return
+
+        ref = payment.get("external_reference")
+
+        if not ref:
+            return
+
+        try:
+
+            ref = json.loads(ref)
+        
+        except Exception:
+
+            return
+
+    
+class ProcessPayment(APIView):
+
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+
+        sdk = mercadopago.SDK(settings.MP_ACCESS_TOKEN)
+
+        payment_data = {
+            "transaction_amount": float(request.data['transaction_amount']),
+            "installments": int(request.data.get("installments")),
+            "token": request.data.get('token'), # Requerido para tarjetas
+            "description": "Compra en Mi Tienda",
+            "payment_method_id": request.data['payment_method_id'], # 'yape' o id de tarjeta
+            "payer": {
+                "email": request.data['payer']['email'],
+            }
+        }
+
+        payment_response = sdk.payment().create(payment_data)
+        payment = payment_response["response"]
+
+        return Response(payment)

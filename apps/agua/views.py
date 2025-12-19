@@ -2000,18 +2000,7 @@ class CrearPreferenceYape(TenantSafeMixin, APIView):
                     "unit_price": float(request.data["amount"])
                 }
             ],
-            "payment_methods": {
-                "included_payment_methods": [
-                    {"id": "yape"}
-                ]
-            },
             "external_reference": str(request.data["recibo_id"]),
-            "back_urls": {
-                "success": "https://tu-frontend/pago-exitoso",
-                "failure": "https://tu-frontend/pago-error",
-                "pending": "https://tu-frontend/pago-pendiente"
-            },
-            "auto_return": "approved"
         }
 
         preference = sdk.preference().create(preference_data)

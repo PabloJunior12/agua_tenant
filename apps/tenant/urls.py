@@ -1,7 +1,7 @@
 # apps/tenants/public_urls.py
 
 from django.urls import path
-from apps.tenant.views import  ClientViewSet, TenantBackupDownloadView, TenantBackupView, GlobalBackupView, GlobalBackupDownloadView, ValidateTenantView, ConecctMineco, ImportSiafApiView, MetasView, MetasImportCsvView
+from apps.tenant.views import  ClientViewSet, ProcessPayment, MercadoPagoWebhookView, TenantBackupDownloadView, TenantBackupView, GlobalBackupView, GlobalBackupDownloadView, ValidateTenantView, ConecctMineco, ImportSiafApiView, MetasView, MetasImportCsvView
 from rest_framework import routers
 
 router = routers.DefaultRouter()
@@ -19,5 +19,7 @@ urlpatterns = [
     path("global/<int:backup_id>/download/", GlobalBackupDownloadView.as_view()),
     path("tenant-backup/<int:tenant_id>/", TenantBackupView.as_view()),
     path("tenant-backup/<int:backup_id>/download/", TenantBackupDownloadView.as_view()),
+    path('webhooks/mercadopago/', MercadoPagoWebhookView.as_view(), name='mp_webhook'),
+    path("crear-pago/", ProcessPayment.as_view()),
 
 ] + router.urls
