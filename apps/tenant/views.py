@@ -433,17 +433,16 @@ class MercadoPagoWebhookView(APIView):
 
         body = request.data
 
-        # 1️⃣ Verificar evento
         event_type = body.get("type") or body.get("topic")
         if event_type != "payment":
             return Response({"ignored": True}, status=200)
 
-        # 2️⃣ Obtener payment_id
+   
         payment_id = body.get("data", {}).get("id") or body.get("id")
         if not payment_id:
             return Response({"error": "no payment id"}, status=400)
 
-        # 3️⃣ Consultar pago real a Mercado Pago
+    
         try:
             r = requests.get(
                 f"https://api.mercadopago.com/v1/payments/{payment_id}",
@@ -460,7 +459,7 @@ class MercadoPagoWebhookView(APIView):
 
         payment = r.json()
 
-        # 4️⃣ Extraer data básica
+     
         payment_id = str(payment.get("id"))
         status = payment.get("status")
         payment_method = payment.get("payment_method_id")
@@ -469,7 +468,6 @@ class MercadoPagoWebhookView(APIView):
         metadata = payment.get("metadata") or {}
         tenant = metadata.get("tenant")
 
-        # 5️⃣ Guardar Pay (idempotente)
         pay, created = Pay.objects.get_or_create(
             payment_id=payment_id,
             defaults={
@@ -481,7 +479,6 @@ class MercadoPagoWebhookView(APIView):
             }
         )
 
-        # 6️⃣ Si ya existía, puedes actualizar estado/raw
         if not created:
             pay.status = status
             pay.payment_method = payment_method

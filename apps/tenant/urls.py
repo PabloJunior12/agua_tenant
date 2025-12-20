@@ -19,7 +19,6 @@ urlpatterns = [
     path("global/<int:backup_id>/download/", GlobalBackupDownloadView.as_view()),
     path("tenant-backup/<int:tenant_id>/", TenantBackupView.as_view()),
     path("tenant-backup/<int:backup_id>/download/", TenantBackupDownloadView.as_view()),
-    path('webhooks/mercadopago/', MercadoPagoWebhookView.as_view(), name='mp_webhook'),
-
+    path('webhooks/mercadopago/', MercadoPagoWebhookView.as_view())
 
 ] + router.urls
