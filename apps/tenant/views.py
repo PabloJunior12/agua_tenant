@@ -3,11 +3,11 @@ from rest_framework.response import Response
 from rest_framework import status, viewsets
 from django.contrib.auth import authenticate
 from django_tenants.utils import schema_context, get_tenant_model
-from .models import Client, GlobalBackup, TenantBackup
+from .models import Client, GlobalBackup, TenantBackup, Pay
 from .serializers import ClientSerializer, GlobalBackupSerializer, TenantBackupSerializer
 from apps.user.models import User,UserPermission, Module
 from django.db import connection, transaction
-from apps.agua.models import Company, Pay
+from apps.agua.models import Company
 from .utils.seed import load_initial_data
 from bs4 import BeautifulSoup
 import csv
