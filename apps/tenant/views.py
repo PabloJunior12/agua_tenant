@@ -455,7 +455,7 @@ class MercadoPagoWebhookView(APIView):
             return Response({"error": "mp connection error"}, status=500)
 
         if r.status_code != 200:
-            return Response({"error": "mp api error"}, status=500)
+            return Response({"error": "mercado pago api error"}, status=500)
 
         payment = r.json()
 
