@@ -6,6 +6,7 @@ from django_tenants.utils import schema_context, get_tenant_model
 from .models import Client, GlobalBackup, TenantBackup, Pay
 from .serializers import ClientSerializer, GlobalBackupSerializer, TenantBackupSerializer
 from apps.user.models import User,UserPermission, Module
+from apps.agua.serializers import InvoiceAutoSerializer
 from django.db import connection, transaction
 from apps.agua.models import Company
 from .utils.seed import load_initial_data
@@ -433,62 +434,75 @@ class MercadoPagoWebhookView(APIView):
 
         body = request.data
 
+        # 1 Solo eventos de pago
         event_type = body.get("type") or body.get("topic")
         if event_type != "payment":
             return Response({"ignored": True}, status=200)
 
-   
         payment_id = body.get("data", {}).get("id") or body.get("id")
         if not payment_id:
             return Response({"error": "no payment id"}, status=400)
 
-    
-        try:
-            r = requests.get(
-                f"https://api.mercadopago.com/v1/payments/{payment_id}",
-                headers={
-                    "Authorization": f"Bearer {settings.MP_ACCESS_TOKEN}"
-                },
-                timeout=10
-            )
-        except requests.RequestException:
-            return Response({"error": "mp connection error"}, status=500)
+        # 2 Consultar pago real
+        r = requests.get(
+            f"https://api.mercadopago.com/v1/payments/{payment_id}",
+            headers={"Authorization": f"Bearer {settings.MP_ACCESS_TOKEN}"},
+            timeout=10
+        )
 
         if r.status_code != 200:
-            return Response({"error": "mercado pago api error"}, status=500)
+            return Response({"error": "mp api error"}, status=500)
 
         payment = r.json()
 
-     
-        payment_id = str(payment.get("id"))
-        status = payment.get("status")
-        payment_method = payment.get("payment_method_id")
-        amount = payment.get("transaction_amount", 0)
-
+        # 3 Guardar Pay (SIEMPRE)
         metadata = payment.get("metadata") or {}
         tenant = metadata.get("tenant")
 
         pay, created = Pay.objects.get_or_create(
-            payment_id=payment_id,
+            payment_id=str(payment["id"]),
             defaults={
                 "tenant": tenant,
-                "status": status,
-                "payment_method": payment_method,
-                "amount": amount,
+                "status": payment["status"],
+                "payment_method": payment.get("payment_method_id"),
+                "amount": payment.get("transaction_amount", 0),
                 "raw": payment
             }
         )
 
+        # 4 Actualizar si ya existía
         if not created:
-            pay.status = status
-            pay.payment_method = payment_method
-            pay.amount = amount
+            pay.status = payment["status"]
+            pay.payment_method = payment.get("payment_method_id")
+            pay.amount = payment.get("transaction_amount", 0)
             pay.raw = payment
             pay.save()
 
+        # Solo pagos aprobados
+        if pay.status != "approved":
+            return Response({"stored": True, "processed": False}, status=200)
+
+        # 5 Evitar reprocesar
+        if pay.processed:
+            return Response({"stored": True, "processed": True}, status=200)
+
+        # 6 Procesar contabilidad (multitenant)
+        with schema_context(tenant):
+
+            serializer = InvoiceAutoSerializer(data={
+                "customer_id": metadata["customer_id"],
+                "debt_ids": metadata["debt_ids"],
+                "payment_reference": pay.payment_id
+            })
+
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
+        pay.processed = True
+        pay.save()
+
         return Response({
-            "ok": True,
-            "payment_id": payment_id,
-            "status": status,
-            "created": created
+            "stored": True,
+            "processed": True,
+            "payment_id": pay.payment_id
         }, status=200)

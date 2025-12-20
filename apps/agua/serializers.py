@@ -469,15 +469,104 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
         return invoice
 
-# class InvoiceAutoSerializer(serializers.Serializer):
+class InvoiceAutoSerializer(serializers.Serializer):
     
-#     customer_id = serializers.IntegerField()
-#     debt_ids = serializers.ListField(
-#         child=serializers.IntegerField()
-#     )
-#     payment_total = serializers.DecimalField(max_digits=10, decimal_places=2)
-#     payment_method = serializers.ChoiceField(choices=InvoicePayment.PAYMENT_METHODS)
-#     payment_reference = serializers.CharField()
+    customer_id = serializers.IntegerField()
+    debt_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
+    )
+    payment_reference = serializers.CharField()
+
+    def validate(self, data):
+        """
+        Validaciones mínimas y técnicas.
+        No reglas humanas (eso ya lo decidió MP).
+        """
+
+        customer_id = data["customer_id"]
+        debt_ids = data["debt_ids"]
+
+        customer = Customer.objects.filter(id=customer_id).first()
+        if not customer:
+            raise serializers.ValidationError("Cliente no existe.")
+
+        debts = Debt.objects.filter(
+            id__in=debt_ids,
+            customer=customer,
+            paid=False
+        ).order_by("period")
+
+        if not debts.exists():
+            raise serializers.ValidationError("No hay deudas válidas para pagar.")
+        
+        data["customer"] = customer
+        data["debts"] = debts
+
+        return data
+    
+    def create(self, validated_data):
+        
+        customer = validated_data["customer"]
+        debts = validated_data["debts"]
+        payment_reference = validated_data["payment_reference"]
+
+        with transaction.atomic():
+
+            cashbox = CashBox.objects.first() 
+
+            #  Crear factura
+            invoice = Invoice.objects.create(
+                customer=customer,
+                reference=payment_reference,
+                notes="Pago online Mercado Pago"
+            )
+
+            total = 0
+
+            # Relacionar deudas
+            for debt in debts:
+                InvoiceDebt.objects.create(
+                    invoice=invoice,
+                    debt=debt,
+                    total=debt.amount
+                )
+
+                debt.paid = True
+                debt.save()
+
+                if debt.reading:
+                    debt.reading.paid = True
+                    debt.reading.save(skip_process=True)
+
+                total += debt.amount
+
+            # Registrar pago (ONLINE → sin caja)
+            payment = InvoicePayment.objects.create(
+                invoice=invoice,
+                method="card",
+                total=total,
+                reference=payment_reference,
+                cashbox=cashbox
+            )
+
+            # 4️⃣ Movimientos contables
+            for debt in debts:
+                for detail in debt.details.all():
+                    CashMovement.objects.create(
+                        cashbox=cashbox,
+                        concept=detail.concept,
+                        method="card",
+                        total=detail.amount,
+                        reference=payment_reference,
+                        invoice_payment=payment
+                    )
+
+            # 5️⃣ Total factura
+            invoice.total = total
+            invoice.save()
+
+        return invoice
 
 class ViaSerializer(serializers.ModelSerializer):
 
