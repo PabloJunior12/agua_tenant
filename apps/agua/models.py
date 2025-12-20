@@ -617,6 +617,11 @@ class Invoice(models.Model):
         ('cancelled', 'Anulada'),
     ]
 
+    PAYMENT_ORIGIN_CHOICES = (
+        ("counter", "Presencial"),
+        ("gateway", "Pasarela de pagos"),
+    )
+
     name_optional = models.CharField(max_length=200, blank=True, null=True)
     number_optional = models.CharField(max_length=15, blank=True, null=True)
 
@@ -629,6 +634,14 @@ class Invoice(models.Model):
     notes = models.TextField(blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
     created_at = models.DateTimeField(auto_now_add=True)
+
+    payment_origin = models.CharField(
+        max_length=20,
+        choices=PAYMENT_ORIGIN_CHOICES,
+        default="counter"
+    )
+
+    payment_reference = models.CharField(max_length=50, null=True, blank=True, unique=True)
 
     def cancel(self):
         """Anula la factura y libera las deudas asociadas"""

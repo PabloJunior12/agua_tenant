@@ -518,8 +518,9 @@ class InvoiceAutoSerializer(serializers.Serializer):
             #  Crear factura
             invoice = Invoice.objects.create(
                 customer=customer,
-                reference=payment_reference,
-                notes="Pago online Mercado Pago"
+                notes="Pago online Mercado Pago",
+                payment_reference=payment_reference,
+                payment_origin="gateway",
             )
 
             total = 0
