@@ -2,8 +2,9 @@ from rest_framework import routers
 from django.urls import path
 from .views import (
     CustomerViewSet, WaterMeterViewSet, CategoryViewSet, CashOutflowViewSet, ViaViewSet, CalleViewSet, CashBoxViewSet, CompanyViewSet,
-    ReadingViewSet, InvoiceViewSet, ConfigViewSet, DashboardSummaryAPIView, ZonaViewSet, DebtViewSet, NotificacionViewSet, ReadingGenerationViewSet, CashConceptViewSet, DailyCashReportViewSet, MorosidadOnTimeView, MorosidadOverdueView, ProcessPayment, ProcessPaymentYape
+    ReadingViewSet, InvoiceViewSet, ConfigViewSet, DashboardSummaryAPIView, ZonaViewSet, DebtViewSet, NotificacionViewSet, ReadingGenerationViewSet, CashConceptViewSet, DailyCashReportViewSet, MorosidadOnTimeView, MorosidadOverdueView, ProcessPayment, ProcessPaymentYape, PaymentStatusView
 )
+
 router = routers.DefaultRouter()
 
 router.register("cash-out-flow", CashOutflowViewSet)
@@ -31,5 +32,6 @@ urlpatterns = [
     path("summary/", DashboardSummaryAPIView.as_view()),
     path("crear-pago/", ProcessPayment.as_view()),
     path("pagar-yape/", ProcessPaymentYape.as_view()),
+    path("payment-status/<str:payment_id>/", PaymentStatusView.as_view()),
 
 ] + router.urls

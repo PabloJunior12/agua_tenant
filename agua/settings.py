@@ -97,7 +97,7 @@ WSGI_APPLICATION = "agua.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django_tenants.postgresql_backend",
-        "NAME": "agua_tenant",
+        "NAME": "agua",
         "USER": "postgres",
         "PASSWORD": "curo",
         "HOST": "localhost",

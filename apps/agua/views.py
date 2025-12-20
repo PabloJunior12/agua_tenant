@@ -20,10 +20,11 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.generics import ListAPIView
 
 from datetime import datetime, date, timedelta
-from weasyprint import HTML, CSS
+from weasyprint import HTML
 from collections import defaultdict
 from babel.dates import format_date
 from decimal import Decimal
+from apps.tenant.models import Pay
 from apps.user.models import User
 from .models import Customer, Config, DailyCashReport, WaterMeter, CashOutflow, Notificacion, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
 from .serializers import (
@@ -32,21 +33,15 @@ from .serializers import (
 )
 from apps.agua.core.permissions import GlobalPermissionMixin
 
-from PyPDF2 import PdfMerger 
-import calendar
+
 import io
 import pandas as pd
 import os
-import tempfile
-import requests
-import json
 import zipfile
 import uuid
 
-from rest_framework.authtoken.models import Token
 from .utils import calcular_igv_simple, ReadingFilter, DebtFilter, to_none_if_empty, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
 from .core.mixins import TenantSafeMixin
-from requests.auth import HTTPBasicAuth
 import mercadopago
 
 class CustomPagination(PageNumberPagination):
@@ -2029,3 +2024,36 @@ class ProcessPaymentYape(TenantSafeMixin, APIView):
         )
 
         return Response(payment_response["response"])
+    
+class PaymentStatusView(TenantSafeMixin, APIView):
+    
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request, payment_id):
+
+        pay = Pay.objects.filter(payment_id=payment_id).first()
+
+        if not pay:
+
+            return Response({"status": "not_found"}, status=404)
+
+        data = {
+            "status": pay.status,
+            "processed": pay.processed
+        }
+
+        if pay.processed:
+        
+            invoice = Invoice.objects.filter(payment_reference=pay.payment_id).first()
+
+            if invoice:
+
+                data.update({
+
+                    "id": invoice.id,
+                    "code" : invoice.code
+
+                })
+
+        return Response(data)
