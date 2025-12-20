@@ -25,7 +25,7 @@ from collections import defaultdict
 from babel.dates import format_date
 from decimal import Decimal
 from apps.user.models import User
-from .models import Customer, Config, Pay, DailyCashReport, WaterMeter, CashOutflow, Notificacion, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
+from .models import Customer, Config, DailyCashReport, WaterMeter, CashOutflow, Notificacion, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
 from .serializers import (
     CustomerSerializer, MorosidadSerializer, WaterMeterSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
     ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ConfigSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer, NotificacionSerializer
@@ -41,6 +41,7 @@ import tempfile
 import requests
 import json
 import zipfile
+import uuid
 
 from rest_framework.authtoken.models import Token
 from .utils import calcular_igv_simple, ReadingFilter, DebtFilter, to_none_if_empty, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
@@ -1950,7 +1951,7 @@ class DashboardSummaryAPIView(TenantSafeMixin, APIView):
             },
         })
 
-class crear_preference(TenantSafeMixin,APIView):
+class ProcessPayment(TenantSafeMixin, APIView):
 
     authentication_classes = []
     permission_classes = []
@@ -1960,30 +1961,42 @@ class crear_preference(TenantSafeMixin,APIView):
         sdk = mercadopago.SDK(settings.MP_ACCESS_TOKEN)
 
         payment_data = {
-            "transaction_amount": float(request.data.get("amount")),
-            "token": request.data.get("token"),
-            "installments": int(request.data.get("installments")),
-            "payment_method_id": request.data.get("paymentMethodId"),  # ✅
-            "issuer_id": request.data.get("issuerId"),                  # ✅
-            "payer": {
-                "email": request.data.get("cardholderEmail"),           # ✅
-                "identification": {
-                    "type": request.data.get("identificationType"),     # ✅
-                    "number": request.data.get("identificationNumber")  # ✅
-                }
-            },
+            "transaction_amount": float(request.data["transaction_amount"]),
+            "installments": int(request.data["installments"]),  # normalmente 1
+            "token": request.data["token"],
+            "payment_method_id": request.data["payment_method_id"],
+            "issuer_id": request.data.get("issuer_id"),
             "description": "Pago servicio de agua",
-            "external_reference": str(request.data.get("recibo_id", "0"))
+            "payer": {
+                "email": request.data["payer"]["email"],
+                "identification": request.data["payer"].get("identification")
+            },
+            "additional_info": {
+                "items": [
+                    {
+                        "id": "SERV-AGUA",
+                        "title": "Servicio de agua potable",
+                        "category_id": "utilities",
+                        "quantity": 1,
+                        "unit_price": float(request.data["transaction_amount"])
+                    }
+                ]
+            },
+            "external_reference": request.data["external_reference"],
+            "metadata": {
+                "tenant": request.data["tenant_schema"],
+                "customer_id": request.data["customer_id"],
+                "debt_ids": request.data["debt_ids"],
+            }
+
         }
 
-        payment = sdk.payment().create(payment_data)
+        payment_response = sdk.payment().create(payment_data)
+        payment = payment_response["response"]
 
-        if payment["status"] != 201:
-            return Response(payment, status=status.HTTP_400_BAD_REQUEST)
-
-        return Response(payment["response"], status=status.HTTP_201_CREATED)
-
-class CrearPreferenceYape(TenantSafeMixin, APIView):
+        return Response(payment)
+    
+class ProcessPaymentYape(TenantSafeMixin, APIView):
 
     authentication_classes = []
     permission_classes = []
@@ -1991,88 +2004,28 @@ class CrearPreferenceYape(TenantSafeMixin, APIView):
     def post(self, request):
 
         sdk = mercadopago.SDK(settings.MP_ACCESS_TOKEN)
+        token = request.data.get("token")
+        amount = request.data.get("amount")
 
-        preference_data = {
-            "items": [
-                {
-                    "title": "Pago servicio de agua",
-                    "quantity": 1,
-                    "unit_price": float(request.data["amount"])
-                }
-            ],
-            "external_reference": str(request.data["recibo_id"]),
+        request_options = mercadopago.config.RequestOptions()
+        request_options.custom_headers = {
+            "X-Idempotency-Key": str(uuid.uuid4())
         }
 
-        preference = sdk.preference().create(preference_data)
-
-        return Response({
-            "preference_id": preference["response"]["id"]
-        }, status=201)
-
-class MercadoPagoWebhookView(TenantSafeMixin, APIView):
-
-    authentication_classes = []
-    permission_classes = []
-
-    def post(self, request):
-
-        body = request.data
-
-        if body.get("type") != "payment":
-
-           return Response({"ignored": True}, status=200)
-
-        payment_id = body.get("data", {}).get("id")
-        if not payment_id:
-            return Response({"error": "no payment id"}, status=400)
-
-        r = requests.get(
-            f"https://api.mercadopago.com/v1/payments/{payment_id}",
-            headers={
-                "Authorization": f"Bearer {settings.MP_ACCESS_TOKEN}"
+        payment_data = {
+            "description": "Pago servicio agua",
+            "installments": 1,
+            "payer": {
+                "email": "pablo_joseph01@hotmail.com"
             },
-            timeout=10
+            "payment_method_id": "yape",
+            "token": token,
+            "transaction_amount": float(amount)
+        }
+
+        payment_response = sdk.payment().create(
+            payment_data,
+            request_options
         )
 
-        if r.status_code != 200:
-            return Response({"error": "mp error"}, status=500)
-
-        payment = r.json()
-
-        # 3️⃣ Procesar pago (multitenant)
-        self.procesar_pago(payment)
-
-        return Response({"ok": True}, status=200)
-
-    def procesar_pago(self, payment):
-
-        if payment["status"] != "approved":
-
-           return
-
-        ref = payment.get("external_reference")
-
-        if not ref:
-            return
-
-        try:
-
-            ref = json.loads(ref)
-        
-        except Exception:
-
-            return
-
-        if Pay.objects.filter(payment_id=payment["id"]).exists():
-                
-            return
-
-        Pay.objects.create(
-            payment_id=str(payment["id"]),
-            status=payment["status"],
-            payment_method=payment["payment_method_id"],
-            amount=payment["transaction_amount"],
-            raw=payment
-        )
-
-          
+        return Response(payment_response["response"])

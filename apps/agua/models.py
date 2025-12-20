@@ -791,15 +791,6 @@ class Config(models.Model):
 
     add_igv_category = models.BooleanField(default=False, verbose_name="Incluir IGV en tarifas")
 
-class Pay(models.Model):
-
-    payment_id = models.CharField(max_length=50, unique=True)
-    status = models.CharField(max_length=30)
-    payment_method = models.CharField(max_length=30)
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    raw = models.JSONField()
-    created_at = models.DateTimeField(auto_now_add=True)
-
 # class Year(models.Model):
 
 #     """

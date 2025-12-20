@@ -2,7 +2,7 @@ from rest_framework import routers
 from django.urls import path
 from .views import (
     CustomerViewSet, WaterMeterViewSet, CategoryViewSet, CashOutflowViewSet, ViaViewSet, CalleViewSet, CashBoxViewSet, CompanyViewSet,
-    ReadingViewSet, InvoiceViewSet, CrearPreferenceYape, ConfigViewSet,  DashboardSummaryAPIView, crear_preference, ZonaViewSet, DebtViewSet, NotificacionViewSet, ReadingGenerationViewSet, CashConceptViewSet, DailyCashReportViewSet, MorosidadOnTimeView, MorosidadOverdueView , MercadoPagoWebhookView
+    ReadingViewSet, InvoiceViewSet, ConfigViewSet, DashboardSummaryAPIView, ZonaViewSet, DebtViewSet, NotificacionViewSet, ReadingGenerationViewSet, CashConceptViewSet, DailyCashReportViewSet, MorosidadOnTimeView, MorosidadOverdueView, ProcessPayment, ProcessPaymentYape
 )
 router = routers.DefaultRouter()
 
@@ -29,8 +29,7 @@ urlpatterns = [
     path("morosidad/moroso/", MorosidadOverdueView.as_view()),
     path("morosidad/on-time/", MorosidadOnTimeView.as_view()),
     path("summary/", DashboardSummaryAPIView.as_view()),
-    path("crear-pago/", crear_preference.as_view()),
-    path("crear-preference-yape/", CrearPreferenceYape.as_view()),
-    path("webhooks/mercadopago/", MercadoPagoWebhookView.as_view())
+    path("crear-pago/", ProcessPayment.as_view()),
+    path("pagar-yape/", ProcessPaymentYape.as_view()),
 
 ] + router.urls

@@ -7,7 +7,7 @@ from .models import Client, GlobalBackup, TenantBackup
 from .serializers import ClientSerializer, GlobalBackupSerializer, TenantBackupSerializer
 from apps.user.models import User,UserPermission, Module
 from django.db import connection, transaction
-from apps.agua.models import Company
+from apps.agua.models import Company, Pay
 from .utils.seed import load_initial_data
 from bs4 import BeautifulSoup
 import csv
@@ -21,6 +21,7 @@ from rest_framework.views import APIView
 import mercadopago
 from django.conf import settings
 import json
+import uuid
 
 class ValidateTenantView(APIView):
 
@@ -432,73 +433,65 @@ class MercadoPagoWebhookView(APIView):
 
         body = request.data
 
-        if body.get("type") != "payment":
+        # 1️⃣ Verificar evento
+        event_type = body.get("type") or body.get("topic")
+        if event_type != "payment":
+            return Response({"ignored": True}, status=200)
 
-           return Response({"ignored": True}, status=200)
-
-        payment_id = body.get("data", {}).get("id")
+        # 2️⃣ Obtener payment_id
+        payment_id = body.get("data", {}).get("id") or body.get("id")
         if not payment_id:
             return Response({"error": "no payment id"}, status=400)
 
-        r = requests.get(
-            f"https://api.mercadopago.com/v1/payments/{payment_id}",
-            headers={
-                "Authorization": f"Bearer {settings.MP_ACCESS_TOKEN}"
-            },
-            timeout=10
-        )
+        # 3️⃣ Consultar pago real a Mercado Pago
+        try:
+            r = requests.get(
+                f"https://api.mercadopago.com/v1/payments/{payment_id}",
+                headers={
+                    "Authorization": f"Bearer {settings.MP_ACCESS_TOKEN}"
+                },
+                timeout=10
+            )
+        except requests.RequestException:
+            return Response({"error": "mp connection error"}, status=500)
 
         if r.status_code != 200:
-            return Response({"error": "mp error"}, status=500)
+            return Response({"error": "mp api error"}, status=500)
 
         payment = r.json()
 
-        # 3️⃣ Procesar pago (multitenant)
-        self.procesar_pago(payment)
+        # 4️⃣ Extraer data básica
+        payment_id = str(payment.get("id"))
+        status = payment.get("status")
+        payment_method = payment.get("payment_method_id")
+        amount = payment.get("transaction_amount", 0)
 
-        return Response({"ok": True}, status=200)
+        metadata = payment.get("metadata") or {}
+        tenant = metadata.get("tenant")
 
-    def procesar_pago(self, payment):
-
-        if payment["status"] != "approved":
-
-           return
-
-        ref = payment.get("external_reference")
-
-        if not ref:
-            return
-
-        try:
-
-            ref = json.loads(ref)
-        
-        except Exception:
-
-            return
-
-    
-class ProcessPayment(APIView):
-
-    authentication_classes = []
-    permission_classes = []
-
-    def post(self, request):
-
-        sdk = mercadopago.SDK(settings.MP_ACCESS_TOKEN)
-
-        payment_data = {
-            "transaction_amount": float(request.data['transaction_amount']),
-            "installments": int(request.data.get("installments")),
-            "token": request.data.get('token'), # Requerido para tarjetas
-            "description": "Compra en Mi Tienda",
-            "payment_method_id": request.data['payment_method_id'], # 'yape' o id de tarjeta
-            "payer": {
-                "email": request.data['payer']['email'],
+        # 5️⃣ Guardar Pay (idempotente)
+        pay, created = Pay.objects.get_or_create(
+            payment_id=payment_id,
+            defaults={
+                "tenant": tenant,
+                "status": status,
+                "payment_method": payment_method,
+                "amount": amount,
+                "raw": payment
             }
-        }
+        )
 
-        payment_response = sdk.payment().create(payment_data)
-        payment = payment_response["response"]
+        # 6️⃣ Si ya existía, puedes actualizar estado/raw
+        if not created:
+            pay.status = status
+            pay.payment_method = payment_method
+            pay.amount = amount
+            pay.raw = payment
+            pay.save()
 
-        return Response(payment)
+        return Response({
+            "ok": True,
+            "payment_id": payment_id,
+            "status": status,
+            "created": created
+        }, status=200)

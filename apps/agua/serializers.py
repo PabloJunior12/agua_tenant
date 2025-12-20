@@ -469,6 +469,16 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
         return invoice
 
+class InvoiceAutoSerializer(serializers.Serializer):
+    
+    customer_id = serializers.IntegerField()
+    debt_ids = serializers.ListField(
+        child=serializers.IntegerField()
+    )
+    payment_total = serializers.DecimalField(max_digits=10, decimal_places=2)
+    payment_method = serializers.ChoiceField(choices=InvoicePayment.PAYMENT_METHODS)
+    payment_reference = serializers.CharField()
+
 class ViaSerializer(serializers.ModelSerializer):
 
 

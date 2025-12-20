@@ -66,4 +66,13 @@ class TenantBackup(models.Model):
     def __str__(self):
         return f"{self.tenant.schema_name} - {self.created_at}"
     
+class Pay(models.Model):
     
+    payment_id = models.CharField(max_length=50, unique=True)
+    tenant = models.CharField(max_length=50, db_index=True)
+    status = models.CharField(max_length=30)
+    payment_method = models.CharField(max_length=30)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    raw = models.JSONField()
+    processed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
