@@ -492,7 +492,8 @@ class MercadoPagoWebhookView(APIView):
             serializer = InvoiceAutoSerializer(data={
                 "customer_id": metadata["customer_id"],
                 "debt_ids": metadata["debt_ids"],
-                "payment_reference": pay.payment_id
+                "payment_reference": pay.payment_id,
+                "method" :  "yape" if pay.payment_method == 'yape' else 'card'
             })
 
             serializer.is_valid(raise_exception=True)

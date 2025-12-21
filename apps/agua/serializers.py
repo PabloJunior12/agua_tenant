@@ -477,6 +477,7 @@ class InvoiceAutoSerializer(serializers.Serializer):
         allow_empty=False
     )
     payment_reference = serializers.CharField()
+    method = serializers.CharField()
 
     def validate(self, data):
         """
@@ -510,6 +511,7 @@ class InvoiceAutoSerializer(serializers.Serializer):
         customer = validated_data["customer"]
         debts = validated_data["debts"]
         payment_reference = validated_data["payment_reference"]
+        method = validated_data["method"]
 
         with transaction.atomic():
 
@@ -546,7 +548,7 @@ class InvoiceAutoSerializer(serializers.Serializer):
             # Registrar pago (ONLINE → sin caja)
             payment = InvoicePayment.objects.create(
                 invoice=invoice,
-                method="card",
+                method=method,
                 total=total,
                 reference=payment_reference,
                 cashbox=cashbox
@@ -558,7 +560,7 @@ class InvoiceAutoSerializer(serializers.Serializer):
                     CashMovement.objects.create(
                         cashbox=cashbox,
                         concept=detail.concept,
-                        method="card",
+                        method=method,
                         total=detail.amount,
                         reference=payment_reference,
                         invoice_payment=payment
