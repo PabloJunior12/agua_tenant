@@ -1775,6 +1775,9 @@ class CashOutflowViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
 class ConfigViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
+    authentication_classes = []
+    permission_classes = []
+
     queryset = Config.objects.all().order_by('-id')
     serializer_class = ConfigSerializer
     pagination_class = CustomPagination

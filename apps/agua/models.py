@@ -804,6 +804,26 @@ class Config(models.Model):
 
     add_igv_category = models.BooleanField(default=False, verbose_name="Incluir IGV en tarifas")
 
+    # --- PASARELA DE PAGOS ---
+    enable_online_payments = models.BooleanField(
+        default=False,
+        verbose_name="Habilitar pagos online"
+    )
+
+    mp_public_key = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True,
+        verbose_name="Mercado Pago Public Key"
+    )
+
+    mp_access_token = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True,
+        verbose_name="Mercado Pago Access Token"
+    )
+
 # class Year(models.Model):
 
 #     """
