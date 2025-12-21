@@ -2009,13 +2009,20 @@ class ProcessPaymentYape(TenantSafeMixin, APIView):
 
         payment_data = {
             "description": "Pago servicio agua",
+            "payment_method_id": "yape",
+            "token": token,
+            "transaction_amount": float(amount),
             "installments": 1,
+            "notification_url": settings.MP_WEBHOOK_URL,
+            "external_reference": request.data["external_reference"],
+            "metadata": {
+                "tenant": request.data["tenant_schema"],
+                "customer_id": request.data["customer_id"],
+                "debt_ids": request.data["debt_ids"],
+            },
             "payer": {
                 "email": "pablo_joseph01@hotmail.com"
             },
-            "payment_method_id": "yape",
-            "token": token,
-            "transaction_amount": float(amount)
         }
 
         payment_response = sdk.payment().create(

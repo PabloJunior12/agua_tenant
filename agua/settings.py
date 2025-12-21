@@ -152,3 +152,4 @@ BACKUP_TENANT_PATH = BASE_DIR / "backups" / "tenants"
 # IZIPAY_PUBLIC_KEY="42833638:testpublickey_fdkgHbUeauwjMqY7UCYhVoZXJQcpylk3gNkreUHuzxefx"
 
 MP_ACCESS_TOKEN="APP_USR-5776140338113863-121820-5485b8aea2d65b5c59e79ff2bff8526c-3078421227"
+MP_WEBHOOK_URL="https://api.ugm.pe/api/webhooks/mercadopago/"
