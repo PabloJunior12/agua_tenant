@@ -1103,48 +1103,104 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         }, status=204)
 
     @action(detail=True, methods=['get'])
-    def download_receipts(self, request, pk=None):
+    def download_receipts_by_zone(self, request, pk=None):
         """
-        Descargar ZIP de recibos agrupados por zona para este periodo
+        Descargar un único PDF con todos los recibos de una zona
         """
+        company = Company.objects.first()
         generation = self.get_object()
+
+        zona_id = request.query_params.get("zona")
+
+        if not zona_id:
+            return Response(
+                {"error": "Debe enviar el parámetro zona"},
+                status=400
+            )
+
         readings = (
             Reading.objects.filter(
                 period=generation.period,
-                customer__zona__isnull=False
+                customer__zona_id=zona_id
             )
             .select_related("customer", "customer__zona")
-            .order_by("customer__zona__name", "customer__codigo")
+            .order_by("customer__codigo")
         )
 
         if not readings.exists():
             return Response(
-                {"error": "No hay lecturas con zona asignada para este periodo"},
+                {"error": "No hay lecturas para esta zona en este periodo"},
                 status=400
             )
 
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            # Agrupar lecturas por zona
-            zonas = {}
-            for reading in readings:
-                zona_name = reading.customer.zona.name
-                zonas.setdefault(zona_name, []).append(reading)
+        zona = Zona.objects.get(pk = zona_id)
 
-            # Generar 1 PDF por zona
-            for zona, zona_readings in zonas.items():
-                html_content = render_to_string(
-                    "agua/recibo.html",
-                    {"readings": zona_readings, "zona": zona}
-                )
-                pdf_bytes = HTML(string=html_content).write_pdf()
-                zip_file.writestr(f"{zona}.pdf", pdf_bytes)
+        all_readings_context = []
 
-        buffer.seek(0)
-        response = HttpResponse(buffer, content_type="application/zip")
-        response["Content-Disposition"] = (
-            f'attachment; filename="recibos_{generation.period.strftime("%Y-%m")}.zip"'
+        for reading in readings:
+            # Deudas anteriores no pagadas
+            previous_debts = Debt.objects.filter(
+                customer=reading.customer,
+                paid=False,
+                period__lt=reading.period
+            ).order_by("period")
+
+            # Agrupar deudas por año
+            yearly_data = defaultdict(lambda: {"total": 0, "months": []})
+            for d in previous_debts:
+                year = d.period.year
+                month = d.period.month
+                yearly_data[year]["total"] += float(d.amount)
+                yearly_data[year]["months"].append(month)
+
+            grouped_debts = []
+            for year, data in yearly_data.items():
+                min_month = min(data["months"])
+                max_month = max(data["months"])
+                grouped_debts.append({
+                    "year": year,
+                    "total": f"{data['total']:.2f}",
+                    "from_month": format_date(
+                        date(year, min_month, 1), "MMMM", locale="es"
+                    ).capitalize(),
+                    "to_month": format_date(
+                        date(year, max_month, 1), "MMMM", locale="es"
+                    ).capitalize(),
+                })
+
+            grouped_debts.sort(key=lambda x: x["year"], reverse=True)
+
+            total_previous_debt = (
+                previous_debts.aggregate(total=Sum("amount"))["total"] or 0
+            )
+            total_general = reading.total_amount + total_previous_debt
+
+            all_readings_context.append({
+                "reading": reading,
+                "grouped_debts": grouped_debts,
+                "total_previous_debt": total_previous_debt,
+                "total_general": total_general,
+            })
+
+        html_content = render_to_string(
+            "agua/recibo.html",
+            {
+                "readings_context": all_readings_context,
+                "company": company,
+                "zona": zona.name,
+            }
         )
+
+        pdf_bytes = HTML(
+            string=html_content,
+            base_url=request.build_absolute_uri('/')
+        ).write_pdf()
+
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'attachment; filename="zona_{zona.name}_{generation.period.strftime("%Y-%m")}.pdf"'
+        )
+
         return response
 
     @action(detail=True, methods=['get'])

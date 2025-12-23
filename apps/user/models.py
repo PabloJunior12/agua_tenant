@@ -4,6 +4,7 @@ from apps.tenant.models import Client
 import uuid
 
 class CustomUserManager(BaseUserManager):
+    
     def create_user(self, email, username, password=None, **extra_fields):
         if not email:
             raise ValueError('El email es obligatorio')

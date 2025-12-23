@@ -138,8 +138,6 @@ MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-
 # if os.name == "nt":  # Windows
 BACKUP_GLOBAL_PATH = BASE_DIR / "backups" / "global"
 # else:  # Linux
