@@ -1189,12 +1189,16 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                         grouped_debts.append({
                             "year": year,
                             "total": f"{data['total']:.2f}",
-                            "from_month": date(
-                                year, min(data["months"]), 1
-                            ).strftime("%B").capitalize(),
-                            "to_month": date(
-                                year, max(data["months"]), 1
-                            ).strftime("%B").capitalize(),
+                            "from_month": format_date(
+                                date(year, min(data["months"]), 1),
+                                "MMMM",
+                                locale="es"
+                            ).capitalize(),
+                            "to_month": format_date(
+                                date(year, max(data["months"]), 1),
+                                "MMMM",
+                                locale="es"
+                            ).capitalize(),
                         })
 
                     grouped_debts.sort(
