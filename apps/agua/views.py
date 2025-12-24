@@ -6,7 +6,7 @@ from django.conf import settings
 from django.utils.timezone import now, localdate
 from django.utils.formats import date_format
 from django.db import transaction
-from django.db.models import Max, Sum, Count, Min, Q
+from django.db.models import Max, Sum, Count, Min, Q, Prefetch
 from django.views.decorators.csrf import csrf_exempt
 from dateutil.relativedelta import relativedelta
 
@@ -978,7 +978,17 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = f'inline; filename=recibo_{reading.customer.codigo}_{reading.period.strftime("%Y-%m")}.pdf"'
         return response
-    
+
+# 🔒 Límite seguro de recibos por PDF
+MAX_RECIBOS_POR_PDF = 100
+
+def chunked_queryset(iterable, size):
+    """
+    Divide una lista en bloques de tamaño fijo
+    """
+    for i in range(0, len(iterable), size):
+        yield iterable[i:i + size]
+
 class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     queryset = ReadingGeneration.objects.all()
@@ -1105,102 +1115,134 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def download_receipts_by_zone(self, request, pk=None):
         """
-        Descargar un único PDF con todos los recibos de una zona
+        Descargar recibos de UNA zona, divididos en varios PDFs
+        si excede el límite, dentro de un ZIP
         """
         company = Company.objects.first()
         generation = self.get_object()
 
         zona_id = request.query_params.get("zona")
-
         if not zona_id:
             return Response(
                 {"error": "Debe enviar el parámetro zona"},
                 status=400
             )
 
+        # 🔹 Lecturas optimizadas
         readings = (
             Reading.objects.filter(
                 period=generation.period,
                 customer__zona_id=zona_id
             )
             .select_related("customer", "customer__zona")
+            .prefetch_related(
+                Prefetch(
+                    "customer__debts",
+                    queryset=Debt.objects.filter(
+                        paid=False,
+                        period__lt=generation.period
+                    ),
+                    to_attr="previous_debts"
+                )
+            )
             .order_by("customer__codigo")
         )
 
         if not readings.exists():
             return Response(
-                {"error": "No hay lecturas para esta zona en este periodo"},
+                {"error": "No hay recibos para esta zona"},
                 status=400
             )
 
-        zona = Zona.objects.get(pk = zona_id)
+        readings_list = list(readings)
+        zona = readings_list[0].customer.zona
 
-        all_readings_context = []
-
-        for reading in readings:
-            # Deudas anteriores no pagadas
-            previous_debts = Debt.objects.filter(
-                customer=reading.customer,
-                paid=False,
-                period__lt=reading.period
-            ).order_by("period")
-
-            # Agrupar deudas por año
-            yearly_data = defaultdict(lambda: {"total": 0, "months": []})
-            for d in previous_debts:
-                year = d.period.year
-                month = d.period.month
-                yearly_data[year]["total"] += float(d.amount)
-                yearly_data[year]["months"].append(month)
-
-            grouped_debts = []
-            for year, data in yearly_data.items():
-                min_month = min(data["months"])
-                max_month = max(data["months"])
-                grouped_debts.append({
-                    "year": year,
-                    "total": f"{data['total']:.2f}",
-                    "from_month": format_date(
-                        date(year, min_month, 1), "MMMM", locale="es"
-                    ).capitalize(),
-                    "to_month": format_date(
-                        date(year, max_month, 1), "MMMM", locale="es"
-                    ).capitalize(),
-                })
-
-            grouped_debts.sort(key=lambda x: x["year"], reverse=True)
-
-            total_previous_debt = (
-                previous_debts.aggregate(total=Sum("amount"))["total"] or 0
-            )
-            total_general = reading.total_amount + total_previous_debt
-
-            all_readings_context.append({
-                "reading": reading,
-                "grouped_debts": grouped_debts,
-                "total_previous_debt": total_previous_debt,
-                "total_general": total_general,
-            })
-
-        html_content = render_to_string(
-            "agua/recibo.html",
-            {
-                "readings_context": all_readings_context,
-                "company": company,
-                "zona": zona.name,
-            }
+        buffer = io.BytesIO()
+        zip_filename = (
+            f"recibos_zona_{zona.name}_{generation.period.strftime('%Y-%m')}.zip"
         )
 
-        pdf_bytes = HTML(
-            string=html_content,
-            base_url=request.build_absolute_uri('/')
-        ).write_pdf()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
 
-        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+            for idx, chunk in enumerate(
+                chunked_queryset(readings_list, MAX_RECIBOS_POR_PDF),
+                start=1
+            ):
+                all_readings_context = []
+
+                for reading in chunk:
+                    previous_debts = reading.customer.previous_debts
+
+                    # 🔹 Agrupar deudas por año (DECIMAL ONLY)
+                    yearly_data = defaultdict(
+                        lambda: {"total": Decimal("0.00"), "months": []}
+                    )
+
+                    for d in previous_debts:
+                        year = d.period.year
+                        month = d.period.month
+                        yearly_data[year]["total"] += d.amount
+                        yearly_data[year]["months"].append(month)
+
+                    grouped_debts = []
+                    for year, data in yearly_data.items():
+                        grouped_debts.append({
+                            "year": year,
+                            "total": f"{data['total']:.2f}",
+                            "from_month": date(
+                                year, min(data["months"]), 1
+                            ).strftime("%B").capitalize(),
+                            "to_month": date(
+                                year, max(data["months"]), 1
+                            ).strftime("%B").capitalize(),
+                        })
+
+                    grouped_debts.sort(
+                        key=lambda x: x["year"],
+                        reverse=True
+                    )
+
+                    total_previous_debt = sum(
+                        (d.amount for d in previous_debts),
+                        Decimal("0.00")
+                    )
+
+                    total_general = (
+                        reading.total_amount + total_previous_debt
+                    )
+
+                    all_readings_context.append({
+                        "reading": reading,
+                        "grouped_debts": grouped_debts,
+                        "total_previous_debt": total_previous_debt,
+                        "total_general": total_general,
+                    })
+
+                # 🔹 Render PDF del bloque
+                html_content = render_to_string(
+                    "agua/recibo.html",
+                    {
+                        "readings_context": all_readings_context,
+                        "company": company,
+                        "zona": zona.name,
+                    }
+                )
+
+                pdf_bytes = HTML(
+                    string=html_content,
+                    base_url=request.build_absolute_uri('/')
+                ).write_pdf()
+
+                zip_file.writestr(
+                    f"{zona.name}_parte_{idx}.pdf",
+                    pdf_bytes
+                )
+
+        buffer.seek(0)
+        response = HttpResponse(buffer, content_type="application/zip")
         response["Content-Disposition"] = (
-            f'attachment; filename="zona_{zona.name}_{generation.period.strftime("%Y-%m")}.pdf"'
+            f'attachment; filename="{zip_filename}"'
         )
-
         return response
 
     @action(detail=True, methods=['get'])
