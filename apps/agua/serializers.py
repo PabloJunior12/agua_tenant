@@ -353,7 +353,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
         concepts_data = validated_data.pop("invoice_concepts", [])
         payments_data = validated_data.pop("invoice_payments", [])
 
-        # 🔹 1. Si no se envió cliente (por ser pagador externo)
+        # 1. Si no se envió cliente (por ser pagador externo)
         if not validated_data.get("customer"):
             try:
                 default_customer = Customer.objects.get(codigo="00000")  # o "000000"
@@ -371,24 +371,24 @@ class InvoiceSerializer(serializers.ModelSerializer):
             if debts_data:
                 selected_debts = [item["debt"] for item in debts_data]
                 selected_debts = sorted(selected_debts, key=lambda d: d.period)
-                customer = validated_data["customer"]
-                all_unpaid = Debt.objects.filter(customer=customer, paid=False).order_by("period")
+                # customer = validated_data["customer"]
+                # all_unpaid = Debt.objects.filter(customer=customer, paid=False).order_by("period")
 
-                if all_unpaid.exists():
-                    first_unpaid = all_unpaid.first().period
-                    if selected_debts[0].period != first_unpaid:
-                        raise serializers.ValidationError({
-                            "error": f"Debes pagar empezando desde {first_unpaid.strftime('%m-%Y')}."
-                        })
+                # if all_unpaid.exists():
+                #     first_unpaid = all_unpaid.first().period
+                #     if selected_debts[0].period != first_unpaid:
+                #         raise serializers.ValidationError({
+                #             "error": f"Debes pagar empezando desde {first_unpaid.strftime('%m-%Y')}."
+                #         })
 
-                for i in range(1, len(selected_debts)):
-                    prev = selected_debts[i - 1].period
-                    curr = selected_debts[i].period
-                    diff = (curr.year - prev.year) * 12 + (curr.month - prev.month)
-                    if diff != 1:
-                        raise serializers.ValidationError({
-                            "error": "Las deudas deben pagarse en meses consecutivos."
-                        })
+                # for i in range(1, len(selected_debts)):
+                #     prev = selected_debts[i - 1].period
+                #     curr = selected_debts[i].period
+                #     diff = (curr.year - prev.year) * 12 + (curr.month - prev.month)
+                #     if diff != 1:
+                #         raise serializers.ValidationError({
+                #             "error": "Las deudas deben pagarse en meses consecutivos."
+                #         })
 
                 for item in debts_data:
                     debt = item["debt"]
@@ -405,7 +405,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             # --- CASO 2: PAGO DE CONCEPTOS ---
             elif concepts_data:
                 for item in concepts_data:
-                    # 👇 ahora concept es un PrimaryKeyRelatedField (solo el id)
+                    # ahora concept es un PrimaryKeyRelatedField (solo el id)
                     concept = item["concept"]
                     total_concept = item.get("total", 0)
                     description = item.get("description")
