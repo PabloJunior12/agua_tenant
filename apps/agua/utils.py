@@ -86,6 +86,13 @@ def to_none_if_empty(value):
     value_str = str(value).strip()
     return value_str if value_str else None
 
+def to_none_if_empty_has_meter(value):
+    
+    if pd.isna(value):
+        return None
+    value_str = str(value).strip().lower()
+    return value_str if value_str else None
+
 def to_decimal_or_none(value):
     """
     Convierte un valor a Decimal si es posible, 

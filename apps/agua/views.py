@@ -40,7 +40,7 @@ import os
 import zipfile
 import uuid
 
-from .utils import calcular_igv_simple, ReadingFilter, DebtFilter, to_none_if_empty, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
+from .utils import calcular_igv_simple, ReadingFilter, DebtFilter, to_none_if_empty, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
 from .core.mixins import TenantSafeMixin
 import mercadopago
 
@@ -66,6 +66,21 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         has_meter = data.get('has_meter', True)
         meter_data = data.get('meter', None)
 
+        tenant = request.tenant.schema_name
+
+        code_number = 10
+        next_code_fixed = "0000000001"
+
+        if tenant == 'pangoa':
+
+           code_number = 5
+           next_code_fixed = "00001"
+
+        elif tenant == 'sanmarcos':
+
+           code_number = 8
+           next_code_fixed = "00000001"
+        
         try:
             # Validar duplicado de número si no tiene medidor
             # if not has_meter and data.get('number'):
@@ -92,9 +107,9 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                 # Obtener último código y sumar 1
                 last_code = Customer.objects.aggregate(max_code=Max('codigo'))['max_code']
                 if last_code:
-                    next_code = str(int(last_code) + 1).zfill(5)
+                    next_code = str(int(last_code) + 1).zfill(code_number)
                 else:
-                    next_code = "00001"
+                    next_code = next_code_fixed
 
                 # Asignar el nuevo código al cliente
                 data['codigo'] = next_code
@@ -240,7 +255,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             address = " ".join([p for p in parts if p])
             # Medidor
             code = to_none_if_empty(row.get('Cod.Medidor'))
-            tiene_medidor_excel = to_none_if_empty(row.get('T.Med.'))
+            tiene_medidor_excel = to_none_if_empty_has_meter(row.get('T.Med.'))
 
             if tiene_medidor_excel == "si":
                 has_meter = True

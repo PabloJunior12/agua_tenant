@@ -12,7 +12,7 @@ class Client(TenantMixin):
     auto_drop_schema = True
 
     def __str__(self):
-        return self.name
+        return self.schema_name
 
 class Domain(DomainMixin):
 

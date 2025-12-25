@@ -205,7 +205,7 @@ class Customer(models.Model):
         ("suspended", "Suspendido"),
     ]
 
-    codigo = models.CharField(max_length=5, null=True, blank=True)
+    codigo = models.CharField(max_length=10, null=True, blank=True)
     identity_document_type = models.IntegerField(default=1)
     full_name = models.CharField(max_length=200)
     number = models.CharField(max_length=15, blank=True, null=True)  # Ya no unique
