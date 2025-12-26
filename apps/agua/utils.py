@@ -238,3 +238,7 @@ def procesar_pago(payment):
 
         # cerrar recibo
       
+def calcular_igv_simple(monto):
+ 
+    igv = monto * Decimal('0.18')  # Usar Decimal, no float
+    return round(igv, 2)

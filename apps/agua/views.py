@@ -190,7 +190,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
 
         for index, row in df.iterrows():
 
-            codigo = str(row.get('Codigo'))
+            codigo = str(row.get('Codigo')).strip()
 
             # DNI/RUC
             number = to_none_if_empty(row.get('DNI/RUC.'))
@@ -803,7 +803,8 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         
             codigo = str(row.get('Codigo')).strip()
             customer = Customer.objects.get(codigo=codigo)
-
+            tariff = customer.category
+     
             for lect_col, month in month_map.items():
 
                 consumo_col = [c for c, m in consumo_map.items() if m == month][0]
@@ -818,7 +819,7 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
                 # Si en este mes no hay lectura, consumo, deuda ni pago → cortamos
                 if not any([current_reading, consumption, deuda, pago]):
-                    break
+                   break
 
                 if consumption is not None:
                     previous_reading = current_reading - consumption
@@ -826,44 +827,62 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                     previous_reading = Decimal("0.00")
 
                 if pago and pago > 0:
-                    total_amount = pago
+
+                    total_water = pago
                     paid = True
+
                 elif deuda and deuda > 0:
-                    total_amount = deuda
+
+                    total_water = deuda
                     paid = False
+
                 else:
-                    total_amount = Decimal("0.00")
+
+                    total_water = Decimal("0.00")
                     paid = False
 
                 period_date = date(2025, month, 1)
+                print(total_water)
 
-                try:
-                    cargo_fijo = CashConcept.objects.get(code="003")
-                except CashConcept.DoesNotExist:
-                    cargo_fijo = None
+                total_fixed_charge = tariff.price_fixed_charge
+                total_sewer = tariff.price_sewer
 
-                total_fixed_charge = cargo_fijo.total if cargo_fijo else Decimal("0.00")
+                subtotal = total_water + tariff.price_sewer
+                total_igv = calcular_igv_simple(subtotal)
+                total_clean = tariff.price_clean
 
-                # registros.append(
-                #     Reading(
-                #         customer=customer,
-                #         period=date(2025, month, 1),
-                #         current_reading=current_reading or Decimal("0.00"),
-                #         previous_reading=previous_reading or Decimal("0.00"),
-                #         consumption=consumption or Decimal("0.00"),
-                #         total_water = total_amount,
-                #         total_sewer = customer.category.price_sewer,
-                #         total_fixed_charge = total_fixed_charge,
-                #         total_amount=total_amount + customer.category.price_sewer + total_fixed_charge,
-                #         paid=paid
-                #     )
-                # )
+                sub_total_amount = (
+            
+                    total_water +
+                    total_sewer +
+                    total_igv
+                )
 
-                print(customer)
+                total_amount = (
 
-    
-                # print(codigo,"------")
-        return Response({"message": "Lecturas importadas correctamente"}, status=status.HTTP_200_OK)
+                    sub_total_amount +
+                    total_clean +
+                    total_fixed_charge
+                )
+
+                registros.append(
+                    Reading(
+                        customer = customer,
+                        period = date(2025, month, 1),
+                        current_reading = current_reading or Decimal("0.00"),
+                        previous_reading = previous_reading or Decimal("0.00"),
+                        consumption = consumption or Decimal("0.00"),
+                        total_water = total_water,
+                        total_sewer = total_sewer,
+                        total_clean = total_clean,
+                        total_fixed_charge = total_fixed_charge,
+                        total_igv = total_igv,
+                        sub_total_amount = sub_total_amount,
+                        total_amount = total_amount,
+                        paid = paid
+                    )
+                )
+
         # Inserción masiva ignorando duplicados
         with transaction.atomic():
             
@@ -879,6 +898,8 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 "001": CashConcept.objects.get(code="001"),
                 "002": CashConcept.objects.get(code="002"),
                 "003": CashConcept.objects.get(code="003"),
+                "004": CashConcept.objects.get(code="004"),
+                "005": CashConcept.objects.get(code="005"),
             }
 
             for reading in readings:
@@ -901,7 +922,9 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
             # 6. Generar DebtDetails en lote
             for debt in debts:
+                    
                     r = debt.reading
+                    
                     if r.total_water > 0:
                         debt_details.append(
                             DebtDetail(debt=debt, concept=conceptos["001"], amount=r.total_water)
@@ -913,6 +936,16 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                     if r.total_fixed_charge > 0:
                         debt_details.append(
                             DebtDetail(debt=debt, concept=conceptos["003"], amount=r.total_fixed_charge)
+                        )
+
+                    if r.total_clean > 0:
+                        debt_details.append(
+                            DebtDetail(debt=debt, concept=conceptos["004"], amount=r.total_clean)
+                        )
+                
+                    if r.total_igv > 0:
+                        debt_details.append(
+                            DebtDetail(debt=debt, concept=conceptos["005"], amount=r.total_igv)
                         )
 
             DebtDetail.objects.bulk_create(debt_details, ignore_conflicts=True)
@@ -1496,7 +1529,7 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             df = pd.read_excel(
                 file,
                 engine='openpyxl',
-                header=2,
+                # header=2,
                 dtype={'Codigo': str}
             )
         except Exception as e:
@@ -1510,6 +1543,8 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             "001": CashConcept.objects.get(code="001"),
             "002": CashConcept.objects.get(code="002"),
             "003": CashConcept.objects.get(code="003"),
+            # "004": CashConcept.objects.get(code="004"),
+            # "005": CashConcept.objects.get(code="005"),
         }
 
         # 🔹 Precargar clientes del Excel
