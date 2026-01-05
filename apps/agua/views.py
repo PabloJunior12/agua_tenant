@@ -31,7 +31,7 @@ from .serializers import (
     CustomerSerializer, MorosidadSerializer, WaterMeterSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
     ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ConfigSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer, NotificacionSerializer
 )
-from apps.agua.core.permissions import GlobalPermissionMixin
+from apps.agua.core.permissions import GlobalPermissionMixin, TenantPaymentCreatePermission
 
 
 import io
@@ -43,6 +43,8 @@ import uuid
 from .utils import calcular_igv_simple, ReadingFilter, DebtFilter, to_none_if_empty, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
 from .core.mixins import TenantSafeMixin
 import mercadopago
+
+
 
 class CustomPagination(PageNumberPagination):
 
@@ -1681,6 +1683,8 @@ class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend,filters.SearchFilter]
     search_fields = ['customer__codigo', 'customer__full_name', 'customer__number']
+
+    permission_classes = [TenantPaymentCreatePermission]
 
     @action(detail=True, methods=['get'], url_path='ticket')
     def ticket_pdf(self, request, pk=None, **kwargs):

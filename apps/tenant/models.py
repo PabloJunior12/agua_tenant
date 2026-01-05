@@ -2,6 +2,8 @@
 # tenants/models.py
 from django.db import models
 from django_tenants.models import TenantMixin, DomainMixin
+from datetime import timedelta
+from django.utils.timezone import now
 
 class Client(TenantMixin):
 
@@ -10,6 +12,14 @@ class Client(TenantMixin):
     # Django-tenants creará el schema automáticamente
     auto_create_schema = True
     auto_drop_schema = True
+
+    # 🔐 Control de servicio
+    is_active = models.BooleanField(default=True)
+    payment_due_date = models.DateField()
+    grace_days = models.PositiveIntegerField(default=5)
+
+    def is_payment_overdue(self):
+        return now().date() > self.payment_due_date + timedelta(days=self.grace_days)
 
     def __str__(self):
         return self.schema_name

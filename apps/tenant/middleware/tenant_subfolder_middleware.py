@@ -3,6 +3,7 @@ from django.http import Http404
 from django_tenants.utils import get_tenant_model, get_public_schema_name
 
 class TenantSubfolderMiddleware:
+    
     def __init__(self, get_response):
         self.get_response = get_response
         self.TenantModel = get_tenant_model()
@@ -31,3 +32,4 @@ class TenantSubfolderMiddleware:
         connection.set_schema(tenant.schema_name)
 
         return self.get_response(request)
+
