@@ -26,13 +26,11 @@ from babel.dates import format_date
 from decimal import Decimal
 from apps.tenant.models import Pay
 from apps.user.models import User
-from .models import Customer, Config, DailyCashReport, WaterMeter, CashOutflow, Notificacion, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
+from .models import Customer, Config, DailyCashReport, WaterMeter, CashOutflow, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
 from .serializers import (
     CustomerSerializer, MorosidadSerializer, WaterMeterSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
-    ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ConfigSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer, NotificacionSerializer
-)
+    ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ConfigSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer)
 from apps.agua.core.permissions import GlobalPermissionMixin, TenantPaymentCreatePermission
-
 
 import io
 import pandas as pd
@@ -43,8 +41,6 @@ import uuid
 from .utils import calcular_igv_simple, ReadingFilter, DebtFilter, to_none_if_empty, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
 from .core.mixins import TenantSafeMixin
 import mercadopago
-
-
 
 class CustomPagination(PageNumberPagination):
 
@@ -418,7 +414,7 @@ class CashBoxViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     def report(self, request, pk=None, **kwargs):
 
         cashbox = self.get_object()
-
+        user = User.objects.filter(id=cashbox.user_id).first()
         # 📌 Filtros de fechas
         start_date = request.query_params.get("start_date")
         end_date = request.query_params.get("end_date")
@@ -543,6 +539,7 @@ class CashBoxViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         html_string = render_to_string("reports/caja/daily.html", {
             "cashbox": cashbox,
+            "user" : user,
             "conceptos": conceptos_data,
             "total_general": total_general,
             "reporte_tipo": reporte_tipo,
@@ -566,7 +563,7 @@ class DailyCashReportViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         daily_cash = self.get_object()
 
         cashbox = daily_cash.cashbox
-  
+        user = User.objects.filter(id=cashbox.user_id).first()
         fecha = daily_cash.date
 
         movimientos = cashbox.movements.filter(created_at__date=fecha)
@@ -662,6 +659,7 @@ class DailyCashReportViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         html_string = render_to_string("reports/caja/daily.html", {
             "cashbox": cashbox,
+            "user": user,
             "conceptos": conceptos_data,
             "total_general": total_general,
             "reporte_tipo": reporte_tipo,
@@ -1115,7 +1113,7 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         # Registrar la generación
         generation = ReadingGeneration.objects.create(
             period=period_date,
-            created_by=request.user if request.user.is_authenticated else None,
+            created_by=None,
             total_generated=created,
             notes=request.data.get("notes") or "Generación automática para clientes sin medidor",
             date_of_issue=request.data.get("date_of_issue"),
@@ -1890,33 +1888,6 @@ class ZonaViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     serializer_class = ZonaSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ['codigo','name']
-
-class NotificacionViewSet(TenantSafeMixin,viewsets.ModelViewSet):
-
-    queryset = Notificacion.objects.all().order_by("-id")
-    serializer_class = NotificacionSerializer
-
-    # @authentication_classes([])
-    @action(detail=False, methods=['post'])
-    def yape(self, request, pk=None):
-     
-        token = request.data.get("token_yape")
-        mensaje = request.data.get("mensaje")
-
-        try:
-
-            user = User.objects.get(yape_token=token)
-
-            Notificacion.objects.create(usuario=user, mensaje=mensaje)
-
-
-        except User.DoesNotExist:
-            return Response({"error": "Token inválido"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # aquí guardas la notificación en un modelo si quieres
-        # Notificacion.objects.create(user=user, mensaje=mensaje)
-
-        return Response({"ok": True, "user": user.username})
 
 class CompanyViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 

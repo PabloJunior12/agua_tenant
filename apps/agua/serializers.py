@@ -2,14 +2,17 @@ from rest_framework import serializers
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils.timezone import now
 from django.conf import settings
-from .models import Customer, WaterMeter, CashBox, Company, Notificacion, Config, CashOutflow, InvoiceConcept, CashMovement, DebtDetail, CashConcept, Reading, ReadingGeneration, Invoice, Category, Via, Calle, InvoiceDebt, Zona, Debt, InvoicePayment, DailyCashReport
+from .models import Customer, WaterMeter, CashBox, Company, Config, CashOutflow, InvoiceConcept, CashMovement, DebtDetail, CashConcept, Reading, ReadingGeneration, Invoice, Category, Via, Calle, InvoiceDebt, Zona, Debt, InvoicePayment, DailyCashReport
 from .utils import next_month_date, get_reading_status
 from django.db import transaction
 from django.db.models import Sum
 from decimal import Decimal
 from rest_framework.exceptions import ValidationError
+from django.contrib.auth import get_user_model
 
 import os
+
+User = get_user_model()
 
 class ZonaSerializer(serializers.ModelSerializer):
 
@@ -130,10 +133,23 @@ class CustomerWithDebtsSerializer(serializers.ModelSerializer):
 
 class CashBoxSerializer(serializers.ModelSerializer):
 
+    user = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
 
         model = CashBox
         fields = '__all__'
+
+    def get_user(self, obj):
+        try:
+            user = User.objects.get(id=obj.user_id)
+            return {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+            }
+        except User.DoesNotExist:
+            return None
 
 class DailyCashReportSerializer(serializers.ModelSerializer):
 
@@ -579,12 +595,6 @@ class ViaSerializer(serializers.ModelSerializer):
         
         model = Via
         fields = '__all__'
-
-class NotificacionSerializer(serializers.ModelSerializer):
-
-    class Meta:
-        model = Notificacion
-        fields = ["id", "mensaje", "fecha", "leido"]
 
 class CompanySerializer(serializers.ModelSerializer):
 

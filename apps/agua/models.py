@@ -141,7 +141,7 @@ class CashBox(models.Model):
         ("closed", "Cerrada"),
     ]
 
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="cashboxes")
+    user_id = models.IntegerField()
     opening_date = models.DateTimeField(auto_now_add=True)
     closing_date = models.DateTimeField(null=True, blank=True)
     opening_balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
@@ -150,7 +150,7 @@ class CashBox(models.Model):
 
     def __str__(self):
 
-        return f"Caja {self.id} - {self.user.username}"
+        return f"Caja {self.id}"
 
 class DailyCashReport(models.Model):
 
@@ -766,14 +766,7 @@ class ReadingGeneration(models.Model):
     date_of_issue = models.DateField()
     date_of_due = models.DateField()
     date_of_cute = models.DateField()
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="reading_generations"
-    )
-
+    created_by = models.IntegerField(null=True, blank=True)
     total_generated = models.PositiveIntegerField(default=0)
     notes = models.TextField(blank=True, null=True)
 
@@ -788,17 +781,6 @@ class ReadingGeneration(models.Model):
 
 
  # class PaymentMethod(models.Model):
-
-class Notificacion(models.Model):
-
-    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    mensaje = models.TextField()
-    fecha = models.DateTimeField(auto_now_add=True)
-    leido = models.BooleanField(default=False)
-
-    def __str__(self):
-
-        return f"{self.usuario.username} - {self.mensaje[:30]}"
 
 class Config(models.Model):
 

@@ -2,14 +2,13 @@ from rest_framework import routers
 from django.urls import path
 from .views import (
     CustomerViewSet, WaterMeterViewSet, CategoryViewSet, CashOutflowViewSet, ViaViewSet, CalleViewSet, CashBoxViewSet, CompanyViewSet,
-    ReadingViewSet, InvoiceViewSet, ConfigViewSet, DashboardSummaryAPIView, ZonaViewSet, DebtViewSet, NotificacionViewSet, ReadingGenerationViewSet, CashConceptViewSet, DailyCashReportViewSet, MorosidadOnTimeView, MorosidadOverdueView, ProcessPayment, ProcessPaymentYape, PaymentStatusView
+    ReadingViewSet, InvoiceViewSet, ConfigViewSet, DashboardSummaryAPIView, ZonaViewSet, DebtViewSet, ReadingGenerationViewSet, CashConceptViewSet, DailyCashReportViewSet, MorosidadOnTimeView, MorosidadOverdueView, ProcessPayment, ProcessPaymentYape, PaymentStatusView
 )
 
 router = routers.DefaultRouter()
 
 router.register("cash-out-flow", CashOutflowViewSet)
 router.register("company", CompanyViewSet)
-router.register("notify", NotificacionViewSet)
 router.register("cash-concept", CashConceptViewSet)
 router.register("categories", CategoryViewSet)
 router.register("config", ConfigViewSet)

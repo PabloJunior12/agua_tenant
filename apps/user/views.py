@@ -10,7 +10,7 @@ from .serializers import UserSerializer, ModuleSerializer, UserPermissionSeriali
 from .models import User, Module, UserPermission
 from django.conf import settings
 from django.db import connection
-from .services import get_allowed_modules
+from .services import get_allowed_modules, user_has_activity
 import requests
 
 class CustomPagination(PageNumberPagination):
@@ -190,6 +190,27 @@ class UserViewSet(ModelViewSet):
 
         # 🧩 Cualquier otro caso
         return User.objects.none()
+
+    def destroy(self, request, *args, **kwargs):
+        user = self.get_object()
+
+        if user_has_activity(user):
+            # Tiene actividad → NO se borra
+            # user.is_active = False
+            # user.save(update_fields=["is_active"])
+
+            return Response(
+                {"error": "Usuario desactivado (tiene registros)"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ❗ Caso válido para borrado físico
+        user.delete()
+
+        return Response(
+            {"message": "Usuario eliminado definitivamente"},
+            status=status.HTTP_200_OK
+        )
 
 class ModuleViewSet(ModelViewSet):
 
