@@ -12,6 +12,7 @@ from django.conf import settings
 from django.db import connection
 from .services import get_allowed_modules, user_has_activity
 import requests
+from rest_framework_simplejwt.tokens import RefreshToken
 
 class CustomPagination(PageNumberPagination):
 
@@ -23,83 +24,88 @@ class LoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        username = request.data.get('username')
-        password = request.data.get('password')
-        tenant_name = request.data.get('tenant')
+        username = request.data.get("username")
+        password = request.data.get("password")
+        tenant_name = request.data.get("tenant")
 
         if not username or not password:
             return Response({"error": "Se requieren usuario y contraseña."}, status=400)
 
-        user = authenticate(request, username=username, password=password)
+        user = authenticate(username=username, password=password)
 
-        if user is None:
+        if not user:
             return Response({"error": "Credenciales inválidas."}, status=401)
 
         if not user.is_active:
             return Response({"error": "Cuenta desactivada."}, status=403)
 
-        # 🔒 VALIDACIÓN DE TENANT
         tenant_name = (tenant_name or "").lower().strip()
 
-        # Caso 1: entorno público
+        # 🔒 Validación tenant
         if tenant_name == "public":
             if user.tenant:
                 return Response(
-                    {"error": "Este usuario pertenece a un tenant y no puede acceder al entorno público."},
+                    {"error": "Este usuario pertenece a un tenant."},
                     status=403
                 )
-
-        # Caso 2: entorno de tenant
         else:
             if not user.tenant:
                 return Response(
-                    {"error": "Este usuario es global y no pertenece a ningún tenant."},
+                    {"error": "Usuario global no permitido en tenant."},
                     status=403
                 )
-
             if user.tenant.schema_name != tenant_name:
                 return Response(
-                    {"error": f"El usuario no pertenece al tenant '{tenant_name}'."},
+                    {"error": f"Tenant '{tenant_name}' inválido."},
                     status=403
                 )
 
-        # ✅ Si pasa todas las validaciones, emitir token
-        token, _ = Token.objects.get_or_create(user=user)
-        permissions = UserPermission.objects.filter(user=user).select_related('module')
+        # ✅ Tokens JWT
+        refresh = RefreshToken.for_user(user)
+
+        permissions = UserPermission.objects.filter(
+            user=user
+        ).select_related("module")
 
         permissions_data = [
-            {"module_id": perm.module.id, "module": perm.module.code, "name": perm.module.name}
-            for perm in permissions
+            {
+                "module_id": p.module.id,
+                "module": p.module.code,
+                "name": p.module.name
+            }
+            for p in permissions
         ]
 
-        user_data = {
-            "id": user.id,
-            "username": user.username,
-            "name": user.name,
-            "is_admin": user.is_admin,
-            "is_staff": user.is_staff,
-            "tenant": user.tenant.schema_name if user.tenant else "public",
-            "token": token.key,
-            "permissions": permissions_data,
-        }
-
-        return Response(user_data, status=200)
+        return Response({
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "name": user.name,
+                "is_admin": user.is_admin,
+                "is_staff": user.is_staff,
+                "tenant": user.tenant.schema_name if user.tenant else "public",
+                "permissions": permissions_data
+            }
+        }, status=200)
       
 class LogoutView(APIView):
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def post(self, request):
+        refresh = request.data.get("refresh")
 
-        try:
-             
-            request.user.auth_token.delete()
-            return Response({"message": "Logout exitoso."}, status=200)
+        if refresh:
+            try:
+                token = RefreshToken(refresh)
+                token.blacklist()
+            except Exception:
+                pass  # token expirado o inválido → ignorar
+
+        return Response({"message": "Logout OK"}, status=200)
         
-        except:
-
-             return Response({"error": "Error al realizar el logout."}, status=400)
-
 class ProtectedView(APIView):
 
     permission_classes = [IsAuthenticated]

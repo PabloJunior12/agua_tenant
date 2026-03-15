@@ -160,6 +160,11 @@ class DailyCashReportSerializer(serializers.ModelSerializer):
 
 class CashConceptSerializer(serializers.ModelSerializer):
 
+    system_key_name = serializers.CharField(
+        source='get_system_key_display',
+        read_only=True
+    )
+
     class Meta:
         model = CashConcept
         fields = "__all__"

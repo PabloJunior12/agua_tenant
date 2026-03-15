@@ -1,6 +1,6 @@
 from pathlib import Path
 import os
-
+from datetime import timedelta
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -24,6 +24,8 @@ SHARED_APPS = [
     'django.contrib.admin', # admin solo en tenant
     'rest_framework',
     'rest_framework.authtoken',
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'django_filters',
 
@@ -48,15 +50,9 @@ SHOW_PUBLIC_IF_NO_TENANT_FOUND = False
 # -----------------------------------
 # MIDDLEWARE
 # -----------------------------------
+
 MIDDLEWARE = [
-    # Primero detectamos el tenant por subcarpeta
     "apps.tenant.middleware.tenant_subfolder_middleware.TenantSubfolderMiddleware",
-
-    # Luego django-tenants activa el schema
-    # "django_tenants.middleware.main.TenantMainMiddleware",
-
-    # Ahora sí podemos asignar user_model dinámico
-    # "apps.tenants.middleware.auth_user_middleware.DynamicAuthUserMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -87,7 +83,7 @@ TEMPLATES = [
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework.authentication.TokenAuthentication",
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "EXCEPTION_HANDLER": "apps.agua.core.exceptions.custom_exception_handler",
 }
@@ -103,6 +99,14 @@ DATABASES = {
         "HOST": "localhost",
         "PORT": "5432",
     }
+}
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=59),   # ✔️ ideal ERP
+    "REFRESH_TOKEN_LIFETIME": timedelta(hours=12),    # o 1 día
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "AUTH_HEADER_TYPES": ("Bearer",),
 }
  
 AUTH_USER_MODEL = "user.User"
@@ -139,15 +143,12 @@ MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # if os.name == "nt":  # Windows
-BACKUP_GLOBAL_PATH = BASE_DIR / "backups" / "global"
-# else:  # Linux
-#     BACKUP_GLOBAL_PATH = Path("/var/backups/agua/global")
-BACKUP_TENANT_PATH = BASE_DIR / "backups" / "tenants"
 
-# IZIPAY_USERNAME="42833638"
-# IZIPAY_PASSWORD="testpassword_yVxNzs4WcPwlvlwZzwhdtzqOllwCxQVuwXTmaPlO0FKM8"
-# IZIPAY_API="https://api.micuentaweb.pe/api-payment/V4/Charge/CreatePayment"
-# IZIPAY_PUBLIC_KEY="42833638:testpublickey_fdkgHbUeauwjMqY7UCYhVoZXJQcpylk3gNkreUHuzxefx"
+BACKUP_GLOBAL_PATH = BASE_DIR / "backups" / "global"
+
+# else:  # Linux
+
+BACKUP_TENANT_PATH = BASE_DIR / "backups" / "tenants"
 
 MP_ACCESS_TOKEN="APP_USR-5776140338113863-121820-5485b8aea2d65b5c59e79ff2bff8526c-3078421227"
 MP_WEBHOOK_URL="https://api.ugm.pe/api/webhooks/mercadopago/"

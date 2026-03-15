@@ -5,6 +5,7 @@ from apps.tenant.models import GlobalBackup, TenantBackup
 import os
 
 class Command(BaseCommand):
+    
     help = "Elimina backups antiguos"
 
     def handle(self, *args, **options):
@@ -18,7 +19,7 @@ class Command(BaseCommand):
             backup.delete()
 
         for backup in TenantBackup.objects.filter(
-            created_at__lt=now - timedelta(days=14)
+            created_at__lt=now - timedelta(days=7)
         ):
             if os.path.exists(backup.file_path):
                 os.remove(backup.file_path)

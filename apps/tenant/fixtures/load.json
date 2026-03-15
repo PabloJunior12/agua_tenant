@@ -88,7 +88,7 @@
     "fields": {
       "name": "Categorías",
       "code": "category",
-      "path": "/dashboard/category",
+      "path": "/dashboard/setting/category",
       "icon": "fa-solid fa-layer-group",
       "parent": null,
       "order" : 9
@@ -100,7 +100,7 @@
     "fields": {
       "name": "Catálogo",
       "code": "catalogo",
-      "path": "/dashboard/catalogo",
+      "path": "/dashboard/setting/catalogo",
       "icon": "fa-brands fa-stack-exchange",
       "parent": null,
       "order" : 10
@@ -112,7 +112,7 @@
     "fields": {
       "name": "Vías / Calles",
       "code": "ubication",
-      "path": "/dashboard/ubication",
+      "path": "/dashboard/setting/ubication",
       "icon": "fa-solid fa-location-dot",
       "parent": null,
       "order" : 12
@@ -148,7 +148,7 @@
     "fields": {
       "name": "Zonas",
       "code": "zone",
-      "path": "/dashboard/zone",
+      "path": "/dashboard/setting/zone",
       "icon": "fa-solid fa-map",
       "parent": null,
       "order" : 13

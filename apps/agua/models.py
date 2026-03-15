@@ -170,10 +170,30 @@ class DailyCashReport(models.Model):
 
 class CashConcept(models.Model):
 
+    SYSTEM_KEYS = (
+        ("price_water", "Precio agua"),
+        ("price_sewer", "Precio alcantarillado"),
+        ("price_fixed_charge", "Precio cargo fijo"),
+        ("price_clean", "Precio limpieza"),
+        ("price_igv", "Precio Igv"),
+    )
+
     code = models.CharField(max_length=3, unique=True, null=True, blank=True)
     name = models.CharField(max_length=150)
     type = models.CharField(max_length=15)
     total = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+
+    is_master = models.BooleanField(default=False)
+    is_master_view = models.BooleanField(default=False)
+    state = models.BooleanField(default=True)
+
+    system_key = models.CharField(
+        max_length=30,
+        choices=SYSTEM_KEYS,
+        null=True,
+        blank=True,
+        db_index=True
+    )
 
     def save(self, *args, **kwargs):
         # Solo generar el código si no existe
@@ -481,40 +501,29 @@ class Reading(models.Model):
         # recreamos detalles
         debt.details.all().delete()
 
-        if self.total_water > 0:
-            DebtDetail.objects.create(
-                debt=debt,
-                concept=CashConcept.objects.get(code="001"),
-                amount=self.total_water
-            )
+        concept_map = {
+            "price_water": self.total_water,
+            "price_sewer": self.total_sewer,
+            "price_fixed_charge": self.total_fixed_charge,
+            "price_clean": self.total_clean,
+            "price_igv": self.total_igv,
+        }
 
-        if self.total_sewer > 0:
-            DebtDetail.objects.create(
-                debt=debt,
-                concept=CashConcept.objects.get(code="002"),
-                amount=self.total_sewer
-            )
+        concepts = CashConcept.objects.filter(
+            system_key__in=concept_map.keys()
+        )
 
-        if self.total_fixed_charge > 0:
-            DebtDetail.objects.create(
-                debt=debt,
-                concept=CashConcept.objects.get(code="003"),
-                amount=self.total_fixed_charge
-            )
+        for concept in concepts:
 
-        if self.total_clean > 0:
-            DebtDetail.objects.create(
-                debt=debt,
-                concept=CashConcept.objects.get(code="004"),
-                amount=self.total_clean
-            )
+            amount = concept_map.get(concept.system_key, 0)
 
-        if self.total_igv > 0:
-            DebtDetail.objects.create(
-                debt=debt,
-                concept=CashConcept.objects.get(code="005"),
-                amount=self.total_igv
-            )
+            if amount > 0:
+
+                DebtDetail.objects.create(
+                    debt=debt,
+                    concept=concept,
+                    amount=amount
+                )
 
     # -------------------------------
     # Guardado con cascada

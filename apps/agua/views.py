@@ -1,20 +1,18 @@
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from django.template.loader import render_to_string, get_template
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse
 from django.conf import settings
 from django.utils.timezone import now, localdate
-from django.utils.formats import date_format
+
 from django.db import transaction
 from django.db.models import Max, Sum, Count, Min, Q, Prefetch
-from django.views.decorators.csrf import csrf_exempt
-from dateutil.relativedelta import relativedelta
 
 from rest_framework.views import APIView
 from rest_framework import filters, status, viewsets
-from rest_framework.decorators import action, authentication_classes
+from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import ValidationError
 from rest_framework.generics import ListAPIView
@@ -423,6 +421,20 @@ class CashBoxViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         movimientos = cashbox.movements.all()
         egresos = cashbox.outflows.all()
 
+        # SYSTEM_KEYS = (
+        #     ("price_water", "Precio agua"),
+        #     ("price_sewer", "Precio alcantarillado"),
+        #     ("price_fixed_charge", "Precio cargo fijo"),
+        #     ("price_clean", "Precio limpieza"),
+        #     ("price_igv", "Precio Igv"),
+        # )
+
+        PERIOD_CONCEPTS = {
+            "price_water",
+            "price_sewer",
+            "price_fixed_charge",
+        }
+
         if start_date and end_date:
 
             try:
@@ -484,7 +496,8 @@ class CashBoxViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                     }
 
                     # 📌 Solo calcular periodo si el concepto es 001, 002 o 003
-                    if m.concept.code in ["001", "002", "003"]:
+                    if m.concept.system_key in PERIOD_CONCEPTS:
+
                         periodos = list(
                             inv.invoice_debts.select_related("debt")
                             .values_list("debt__period", flat=True)
@@ -574,6 +587,12 @@ class DailyCashReportViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         # ==========================
         conceptos_dict = defaultdict(list)
 
+        PERIOD_CONCEPTS = {
+            "price_water",
+            "price_sewer",
+            "price_fixed_charge",
+        }
+
         for mov in movimientos.select_related("concept", "invoice_payment__invoice__customer"):
             concepto = mov.concept.name
             conceptos_dict[concepto].append(mov)
@@ -604,7 +623,7 @@ class DailyCashReportViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                     }
 
                     # 📌 Solo calcular periodo si el concepto es 001, 002 o 003
-                    if m.concept.code in ["001", "002", "003"]:
+                    if m.concept.system_key in PERIOD_CONCEPTS:
                         periodos = list(
                             inv.invoice_debts.select_related("debt")
                             .values_list("debt__period", flat=True)
@@ -753,204 +772,205 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         exists = Reading.objects.filter(customer_id=customer_id).exists()
         return Response({'hasHistory': exists})
 
-    @action(detail=False, methods=['post'])
-    def import_excel(self, request):
+    # @action(detail=False, methods=['post'])
+    # def import_excel(self, request):
 
-        month_map = {
-            "Lect.Ene": 1, "Lect.Feb": 2, "Lect.Mar": 3, "Lect.Abr": 4, "Lect.May": 5,
-            "Lect.Jun": 6, "Lect.Jul": 7, "Lect.Ago": 8, "Lect.Sep": 9, "Lect.Oct": 10,
-            "Lect.Nov": 11, "Lect.Dic": 12,
-        }
+    #     month_map = {
+    #         "Lect.Ene": 1, "Lect.Feb": 2, "Lect.Mar": 3, "Lect.Abr": 4, "Lect.May": 5,
+    #         "Lect.Jun": 6, "Lect.Jul": 7, "Lect.Ago": 8, "Lect.Sep": 9, "Lect.Oct": 10,
+    #         "Lect.Nov": 11, "Lect.Dic": 12,
+    #     }
 
-        consumo_map = {
-            "M3 Ene": 1, "M3 Feb": 2, "M3 Mar": 3, "M3 Abr": 4, "M3 May": 5,
-            "M3 Jun": 6, "M3 Jul": 7, "M3 Ago": 8, "M3 Sep": 9, "M3 Oct": 10,
-            "M3 Nov": 11, "M3 Dic": 12,
-        }
+    #     consumo_map = {
+    #         "M3 Ene": 1, "M3 Feb": 2, "M3 Mar": 3, "M3 Abr": 4, "M3 May": 5,
+    #         "M3 Jun": 6, "M3 Jul": 7, "M3 Ago": 8, "M3 Sep": 9, "M3 Oct": 10,
+    #         "M3 Nov": 11, "M3 Dic": 12,
+    #     }
 
-        pago_map = {
-            "Pag.Ene": 1, "Pag.Feb": 2, "Pag.Mar": 3, "Pag.Abr": 4, "Pag.May": 5,
-            "Pag.Jun": 6, "Pag.Jul": 7, "Pag.Ago": 8, "Pag.Set": 9, "Pag.Oct": 10,
-            "Pag.Nov": 11, "Pag.Dic": 12,
-        }
+    #     pago_map = {
+    #         "Pag.Ene": 1, "Pag.Feb": 2, "Pag.Mar": 3, "Pag.Abr": 4, "Pag.May": 5,
+    #         "Pag.Jun": 6, "Pag.Jul": 7, "Pag.Ago": 8, "Pag.Set": 9, "Pag.Oct": 10,
+    #         "Pag.Nov": 11, "Pag.Dic": 12,
+    #     }
 
-        deuda_map = {
-            "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4,
-            "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8,
-            "Setiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12,
-        }
+    #     deuda_map = {
+    #         "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4,
+    #         "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8,
+    #         "Setiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12,
+    #     }
 
-        file = request.FILES.get('file')
+    #     file = request.FILES.get('file')
 
-        if not file:
-            return Response({'error': 'No se proporciono un archivo.'}, status=status.HTTP_400_BAD_REQUEST)
+    #     if not file:
+    #         return Response({'error': 'No se proporciono un archivo.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            df = pd.read_excel(
-                file,
-                engine='openpyxl',
-                # header=2,
-                dtype={'Codigo': str}
-            )
-        except Exception as e:
-            return Response({'error': f'Error al leer el archivo: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+    #     try:
+    #         df = pd.read_excel(
+    #             file,
+    #             engine='openpyxl',
+    #             # header=2,
+    #             dtype={'Codigo': str}
+    #         )
+    #     except Exception as e:
+    #         return Response({'error': f'Error al leer el archivo: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
 
-        registros_creados = 0
+    #     registros_creados = 0
         
-        registros = []
-        debts = []
-        for index, row in df.iterrows():
+    #     registros = []
+    #     debts = []
+    #     for index, row in df.iterrows():
         
-            codigo = str(row.get('Codigo')).strip()
-            customer = Customer.objects.get(codigo=codigo)
-            tariff = customer.category
+    #         codigo = str(row.get('Codigo')).strip()
+    #         customer = Customer.objects.get(codigo=codigo)
+    #         tariff = customer.category
      
-            for lect_col, month in month_map.items():
+    #         for lect_col, month in month_map.items():
 
-                consumo_col = [c for c, m in consumo_map.items() if m == month][0]
-                deuda_col = [c for c, m in deuda_map.items() if m == month][0]
-                pago_col = [c for c, m in pago_map.items() if m == month][0]
+    #             consumo_col = [c for c, m in consumo_map.items() if m == month][0]
+    #             deuda_col = [c for c, m in deuda_map.items() if m == month][0]
+    #             pago_col = [c for c, m in pago_map.items() if m == month][0]
 
-                current_reading = to_decimal_or_none(row.get(lect_col))
-                consumption = to_decimal_or_none(row.get(consumo_col))
-                deuda = to_decimal_or_none(row.get(deuda_col))
-                print(deuda)
-                pago = to_decimal_or_none(row.get(pago_col))
+    #             current_reading = to_decimal_or_none(row.get(lect_col))
+    #             consumption = to_decimal_or_none(row.get(consumo_col))
+    #             deuda = to_decimal_or_none(row.get(deuda_col))
+    #             print(deuda)
+    #             pago = to_decimal_or_none(row.get(pago_col))
 
-                # Si en este mes no hay lectura, consumo, deuda ni pago → cortamos
-                if not any([current_reading, consumption, deuda, pago]):
-                   break
+    #             # Si en este mes no hay lectura, consumo, deuda ni pago → cortamos
+    #             if not any([current_reading, consumption, deuda, pago]):
+    #                break
 
-                if consumption is not None:
-                    previous_reading = current_reading - consumption
-                else:
-                    previous_reading = Decimal("0.00")
+    #             if consumption is not None:
+    #                 previous_reading = current_reading - consumption
+    #             else:
+    #                 previous_reading = Decimal("0.00")
 
-                if pago and pago > 0:
+    #             if pago and pago > 0:
 
-                    total_water = pago
-                    paid = True
+    #                 total_water = pago
+    #                 paid = True
 
-                elif deuda and deuda > 0:
+    #             elif deuda and deuda > 0:
 
-                    total_water = deuda
-                    paid = False
+    #                 total_water = deuda
+    #                 paid = False
 
-                else:
+    #             else:
 
-                    total_water = Decimal("0.00")
-                    paid = False
+    #                 total_water = Decimal("0.00")
+    #                 paid = False
 
-                period_date = date(2025, month, 1)
-                print(total_water)
+    #             period_date = date(2025, month, 1)
+    #             print(total_water)
 
-                total_fixed_charge = tariff.price_fixed_charge
-                total_sewer = tariff.price_sewer
+    #             total_fixed_charge = tariff.price_fixed_charge
+    #             total_sewer = tariff.price_sewer
 
-                subtotal = total_water + tariff.price_sewer
-                total_igv = calcular_igv_simple(subtotal)
-                total_clean = tariff.price_clean
+    #             subtotal = total_water + tariff.price_sewer
+    #             total_igv = calcular_igv_simple(subtotal)
+    #             total_clean = tariff.price_clean
 
-                sub_total_amount = (
+    #             sub_total_amount = (
             
-                    total_water +
-                    total_sewer +
-                    total_igv
-                )
+    #                 total_water +
+    #                 total_sewer +
+    #                 total_igv
+    #             )
 
-                total_amount = (
+    #             total_amount = (
 
-                    sub_total_amount +
-                    total_clean +
-                    total_fixed_charge
-                )
+    #                 sub_total_amount +
+    #                 total_clean +
+    #                 total_fixed_charge
+    #             )
 
-                registros.append(
-                    Reading(
-                        customer = customer,
-                        period = date(2025, month, 1),
-                        current_reading = current_reading or Decimal("0.00"),
-                        previous_reading = previous_reading or Decimal("0.00"),
-                        consumption = consumption or Decimal("0.00"),
-                        total_water = total_water,
-                        total_sewer = total_sewer,
-                        total_clean = total_clean,
-                        total_fixed_charge = total_fixed_charge,
-                        total_igv = total_igv,
-                        sub_total_amount = sub_total_amount,
-                        total_amount = total_amount,
-                        paid = paid
-                    )
-                )
+    #             registros.append(
+    #                 Reading(
+    #                     customer = customer,
+    #                     period = date(2025, month, 1),
+    #                     current_reading = current_reading or Decimal("0.00"),
+    #                     previous_reading = previous_reading or Decimal("0.00"),
+    #                     consumption = consumption or Decimal("0.00"),
+    #                     total_water = total_water,
+    #                     total_sewer = total_sewer,
+    #                     total_clean = total_clean,
+    #                     total_fixed_charge = total_fixed_charge,
+    #                     total_igv = total_igv,
+    #                     sub_total_amount = sub_total_amount,
+    #                     total_amount = total_amount,
+    #                     paid = paid
+    #                 )
+    #             )
 
-        # Inserción masiva ignorando duplicados
-        with transaction.atomic():
+    #     # Inserción masiva ignorando duplicados
+    #     with transaction.atomic():
             
-            # Guardar primero los readings
-            Reading.objects.bulk_create(registros, ignore_conflicts=True)
+    #         # Guardar primero los readings
+    #         Reading.objects.bulk_create(registros, ignore_conflicts=True)
     
-            readings = Reading.objects.all()
+    #         readings = Reading.objects.all()
 
-            # 3. Preparar debts
-            debts = []
-            debt_details = []
-            conceptos = {
-                "001": CashConcept.objects.get(code="001"),
-                "002": CashConcept.objects.get(code="002"),
-                "003": CashConcept.objects.get(code="003"),
-                "004": CashConcept.objects.get(code="004"),
-                "005": CashConcept.objects.get(code="005"),
-            }
+    #         # 3. Preparar debts
+    #         debts = []
+    #         debt_details = []
 
-            for reading in readings:
-                normalized_period = date(reading.period.year, reading.period.month, 1)
+    #         conceptos = {
+    #             "001": CashConcept.objects.get(code="001"),
+    #             "002": CashConcept.objects.get(code="002"),
+    #             "003": CashConcept.objects.get(code="003"),
+    #             "004": CashConcept.objects.get(code="004"),
+    #             "005": CashConcept.objects.get(code="005"),
+    #         }
 
-                debt = Debt(
-                    customer=reading.customer,
-                    period=normalized_period,
-                    description="Deuda por consumo de agua/desagüe",
-                    amount=reading.total_amount,
-                    reading=reading
-                )
-                debts.append(debt)
+    #         for reading in readings:
+    #             normalized_period = date(reading.period.year, reading.period.month, 1)
 
-            # 4. Insertar los debts en lote
-            Debt.objects.bulk_create(debts, ignore_conflicts=True)
+    #             debt = Debt(
+    #                 customer=reading.customer,
+    #                 period=normalized_period,
+    #                 description="Deuda por consumo de agua/desagüe",
+    #                 amount=reading.total_amount,
+    #                 reading=reading
+    #             )
+    #             debts.append(debt)
 
-            # 5. Recuperar debts creados
-            debts = Debt.objects.filter(reading__in=readings)
+    #         # 4. Insertar los debts en lote
+    #         Debt.objects.bulk_create(debts, ignore_conflicts=True)
 
-            # 6. Generar DebtDetails en lote
-            for debt in debts:
+    #         # 5. Recuperar debts creados
+    #         debts = Debt.objects.filter(reading__in=readings)
+
+    #         # 6. Generar DebtDetails en lote
+    #         for debt in debts:
                     
-                    r = debt.reading
+    #                 r = debt.reading
                     
-                    if r.total_water > 0:
-                        debt_details.append(
-                            DebtDetail(debt=debt, concept=conceptos["001"], amount=r.total_water)
-                        )
-                    if r.total_sewer > 0:
-                        debt_details.append(
-                            DebtDetail(debt=debt, concept=conceptos["002"], amount=r.total_sewer)
-                        )
-                    if r.total_fixed_charge > 0:
-                        debt_details.append(
-                            DebtDetail(debt=debt, concept=conceptos["003"], amount=r.total_fixed_charge)
-                        )
+    #                 if r.total_water > 0:
+    #                     debt_details.append(
+    #                         DebtDetail(debt=debt, concept=conceptos["001"], amount=r.total_water)
+    #                     )
+    #                 if r.total_sewer > 0:
+    #                     debt_details.append(
+    #                         DebtDetail(debt=debt, concept=conceptos["002"], amount=r.total_sewer)
+    #                     )
+    #                 if r.total_fixed_charge > 0:
+    #                     debt_details.append(
+    #                         DebtDetail(debt=debt, concept=conceptos["003"], amount=r.total_fixed_charge)
+    #                     )
 
-                    if r.total_clean > 0:
-                        debt_details.append(
-                            DebtDetail(debt=debt, concept=conceptos["004"], amount=r.total_clean)
-                        )
+    #                 if r.total_clean > 0:
+    #                     debt_details.append(
+    #                         DebtDetail(debt=debt, concept=conceptos["004"], amount=r.total_clean)
+    #                     )
                 
-                    if r.total_igv > 0:
-                        debt_details.append(
-                            DebtDetail(debt=debt, concept=conceptos["005"], amount=r.total_igv)
-                        )
+    #                 if r.total_igv > 0:
+    #                     debt_details.append(
+    #                         DebtDetail(debt=debt, concept=conceptos["005"], amount=r.total_igv)
+    #                     )
 
-            DebtDetail.objects.bulk_create(debt_details, ignore_conflicts=True)
+    #         DebtDetail.objects.bulk_create(debt_details, ignore_conflicts=True)
 
-        return Response({"message": "Lecturas importadas correctamente"}, status=status.HTTP_200_OK)
+    #     return Response({"message": "Lecturas importadas correctamente"}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['get'])
     def receipt(self, request, pk=None, **kwargs):
@@ -1409,15 +1429,7 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         if Debt.objects.filter(customer=customer, period=normalized_period).exists():
             raise ValidationError("Ya existe una deuda para este cliente y periodo.")
 
-        # Obtener conceptos
-        conceptos = {
-            "001": CashConcept.objects.get(code="001"),  # Agua
-            "002": CashConcept.objects.get(code="002"),  # Desagüe
-            "003": CashConcept.objects.get(code="003"),  # Cargo fijo
-            "004": CashConcept.objects.get(code="004"),  # clean
-            "005": CashConcept.objects.get(code="005"),  # igv
-        }
-
+    
         # Calcular montos base
         total_fixed_charge = customer.category.price_fixed_charge
         total_water = customer.category.price_water
@@ -1457,27 +1469,29 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             reading=reading,  # 👈 vinculación directa
         )
 
-        # Crear detalles
+        concept_map = {
+            "price_water": total_water,
+            "price_sewer": total_sewer,
+            "price_fixed_charge": total_fixed_charge,
+            "price_clean": total_clean,
+            "price_igv": total_igv,
+        }
 
-        if total_water > 0:
+        concepts = CashConcept.objects.filter(
+            system_key__in=concept_map.keys()
+        )
 
-           DebtDetail.objects.create(debt=debt, concept=conceptos["001"], amount=total_water)
+        concept_dict = {c.system_key: c for c in concepts}
 
-        if total_sewer > 0:
+        for key, amount in concept_map.items():
 
-           DebtDetail.objects.create(debt=debt, concept=conceptos["002"], amount=total_sewer)
+            if amount > 0 and key in concept_dict:
 
-        if total_fixed_charge > 0:  
-
-           DebtDetail.objects.create(debt=debt, concept=conceptos["003"], amount=total_fixed_charge)
-
-        if total_clean > 0:  
-
-           DebtDetail.objects.create(debt=debt, concept=conceptos["004"], amount=total_clean)
-
-        if total_igv > 0:  
-
-           DebtDetail.objects.create(debt=debt, concept=conceptos["005"], amount=total_igv)
+                DebtDetail.objects.create(
+                    debt=debt,
+                    concept=concept_dict[key],
+                    amount=amount
+                )
 
         # Respuesta
         serializer = self.get_serializer(debt)
@@ -1733,12 +1747,20 @@ class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
         invoice.cancel()
         return Response({"message": "Factura anulada"}, status=status.HTTP_200_OK)
 
-class CashConceptViewSet(TenantSafeMixin,viewsets.ModelViewSet):
+class CashConceptViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
     queryset = CashConcept.objects.all().order_by('id')
     serializer_class = CashConceptSerializer
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter
+    ]
+
     search_fields = ['name']
+
+    filterset_fields = ['is_master', 'is_master_view', 'state']
 
 class CategoryViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     
