@@ -1047,7 +1047,7 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         response["Content-Disposition"] = f'inline; filename=recibo_{reading.customer.codigo}_{reading.period.strftime("%Y-%m")}.pdf"'
         return response
 
-# 🔒 Límite seguro de recibos por PDF
+# Límite seguro de recibos por PDF
 MAX_RECIBOS_POR_PDF = 100
 
 def chunked_queryset(iterable, size):
