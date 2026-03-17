@@ -1578,6 +1578,7 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             cargo_fijo = None
 
         total_fixed_charge = cargo_fijo.total if cargo_fijo else Decimal("0.00")
+        # df = df.head(2)
 
         for row in df.itertuples(index=False):
             codigo = str(row.Codigo)
@@ -1585,7 +1586,7 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             meses_texto = to_none_if_empty(row.Meses)
             total = to_decimal_or_none(row.Agua)
 
-            if year != 2026:
+            if year != 2027:
                 if not meses_texto:
                     errores.append({"codigo": codigo, "anio": year, "total": total, "error": "Campo 'Meses' vacio"})
                     continue
@@ -1607,7 +1608,9 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 total_fixed_charge = Decimal(customer.category.price_fixed_charge or 0)
 
                 amount = total_water + total_sewer + total_fixed_charge
-
+                if amount <= Decimal("0.00"):
+                    print(f"Deuda ignorada para {codigo} monto 0")
+                    continue
                 for periodo in periodos:
                     # 🔹 Obtener o crear debt en memoria, no en DB aún
 

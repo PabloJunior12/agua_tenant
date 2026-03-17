@@ -109,16 +109,40 @@ def to_decimal_or_none(value):
     
 def generar_periodos(anio, meses_texto):
 
-    """
-    meses_texto: "DE ENERO A DICIEMBRE" o "DE JULIO A DICIEMBRE"
-    """
-    partes = meses_texto.replace("DE ", "").split(" A ")
-    mes_inicio = MESES[partes[0].strip().upper()]
-    mes_fin = MESES[partes[1].strip().upper()]
+    texto = (meses_texto or "").upper().strip()
+
+    # quitar "DE"
+    if texto.startswith("DE "):
+        texto = texto[3:].strip()
+
+    # normalizar espacios
+    texto = " ".join(texto.split())
+
+    # casos como "ENERO A"
+    if texto.endswith(" A"):
+        inicio_txt = texto.replace(" A", "").strip()
+        fin_txt = inicio_txt
+
+    elif " A " in texto:
+        inicio_txt, fin_txt = texto.split(" A ", 1)
+        inicio_txt = inicio_txt.strip()
+        fin_txt = fin_txt.strip()
+
+    else:
+        inicio_txt = texto
+        fin_txt = texto
+
+    mes_inicio = MESES.get(inicio_txt)
+    mes_fin = MESES.get(fin_txt)
+
+    if not mes_inicio or not mes_fin:
+        raise ValueError(f"Mes invalido: '{texto}'")
 
     periodos = []
+
     for mes in range(mes_inicio, mes_fin + 1):
         periodos.append(date(anio, mes, 1))
+
     return periodos
 
 def format_period(periodo):
