@@ -102,8 +102,8 @@ DATABASES = {
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=59),   # ✔️ ideal ERP
-    "REFRESH_TOKEN_LIFETIME": timedelta(hours=12),    # o 1 día
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=8),   
+    "REFRESH_TOKEN_LIFETIME": timedelta(hours=12),   
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
     "AUTH_HEADER_TYPES": ("Bearer",),
@@ -120,6 +120,7 @@ USE_TZ = True
 USE_L10N = False
 
 CORS_ALLOWED_ORIGINS = [
+    "http://chilca.localhost:4200",
     "http://demo.localhost:4200",
     "http://pangoa.localhost:4200",
     "http://sanmarcos.localhost:4200",

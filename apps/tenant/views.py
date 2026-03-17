@@ -7,8 +7,7 @@ from .models import Client, GlobalBackup, TenantBackup, Pay
 from .serializers import ClientSerializer, GlobalBackupSerializer, TenantBackupSerializer
 from apps.user.models import User,UserPermission, Module
 from apps.agua.serializers import InvoiceAutoSerializer
-from django.db import connection, transaction
-from apps.agua.models import Company
+from django.db import connection
 from .utils.seed import load_initial_data
 from bs4 import BeautifulSoup
 import csv
@@ -19,10 +18,9 @@ from django.core.management import call_command
 import os
 from django.http import FileResponse, Http404
 from rest_framework.views import APIView
-import mercadopago
 from django.conf import settings
-import json
-import uuid
+from datetime import timedelta
+from django.utils.timezone import now
 
 class ValidateTenantView(APIView):
 
@@ -57,6 +55,7 @@ class ClientViewSet(viewsets.ModelViewSet):
 
         client = Client.objects.create(
             schema_name=schema_name,
+            payment_due_date=now().date() + timedelta(days=30)
         )
 
         # 2️⃣ Crear usuario asociado al tenant
