@@ -234,6 +234,10 @@ class Customer(models.Model):
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="customers")
     calle = models.ForeignKey(Calle, on_delete=models.PROTECT, null=True)
     zona = models.ForeignKey(Zona, on_delete=models.PROTECT, null=True)
+
+    provincia = models.CharField(max_length=15, blank=True, null=True)
+    distrito = models.CharField(max_length=15, blank=True, null=True)
+    sector = models.CharField(max_length=15, blank=True, null=True)
     mz = models.CharField(max_length=15, blank=True, null=True)
     lote = models.CharField(max_length=15, blank=True, null=True)
     nro = models.CharField(max_length=15, blank=True, null=True)

@@ -36,7 +36,7 @@ import os
 import zipfile
 import uuid
 
-from .utils import calcular_igv_simple, ReadingFilter, DebtFilter, to_none_if_empty, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
+from .utils import calcular_igv_simple, ReadingFilter, DebtFilter, to_none_if_empty, clean_value, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
 from .core.mixins import TenantSafeMixin
 import mercadopago
 
@@ -67,12 +67,12 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         code_number = 10
         next_code_fixed = "0000000001"
 
-        if tenant == 'pangoa':
+        if tenant == 'pangoa' or tenant == 'chilca':
 
            code_number = 5
            next_code_fixed = "00001"
 
-        elif tenant == 'sanmarcos' or tenant == 'chilca':
+        elif tenant == 'sanmarcos':
 
            code_number = 8
            next_code_fixed = "00000001"
@@ -141,6 +141,19 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
 
         return super().destroy(request, *args, **kwargs)
 
+    @action(detail=False, methods=['get'])
+    def next_codigo(self, request):
+        last = Customer.objects.aggregate(max_codigo=Max('codigo'))
+
+        if last['max_codigo']:
+            next_num = int(last['max_codigo']) + 1
+        else:
+            next_num = 1
+
+        codigo = str(next_num).zfill(5)
+
+        return Response({"codigo": codigo})
+
     @action(detail=False, methods=["get"], url_path="by-code")
     def by_code_and_dni(self, request):
         codigo = request.query_params.get("codigo")
@@ -188,6 +201,8 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         for index, row in df.iterrows():
 
             codigo = str(row.get('Codigo')).strip()
+            if codigo:
+               codigo = codigo[-5:]
 
             # DNI/RUC
             number = to_none_if_empty(row.get('DNI/RUC.'))
@@ -296,6 +311,53 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                     )
 
         return Response({"message": "Clientes importados correctamente"}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'])
+    def import_excel_(self, request):
+
+        file = request.FILES.get('file')
+
+        if not file:
+            return Response({'error': 'No se proporciono un archivo.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            df = pd.read_excel(
+                file,
+                engine='openpyxl',
+                dtype={'c_codigo': str}
+            )
+        except Exception as e:
+            return Response({'error': f'Error al leer el archivo: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        for index, row in df.iterrows():
+
+            codigo = str(row.get('c_codigo')).strip()
+
+            
+
+            provincia = clean_value(row.get("cr1"))
+            distrito = clean_value(row.get("cr2"))
+            sector = clean_value(row.get("cr3"))
+            mz = clean_value(row.get("cr4"))
+            lote = clean_value(row.get("cr5"))
+
+            if codigo:
+               codigo = codigo[-4:]
+            
+            print(f"0{codigo}")
+
+            customer = Customer.objects.get(codigo=f"0{codigo}")
+
+            customer.provincia = provincia
+            customer.distrito = distrito
+            customer.sector = sector
+            customer.mz = mz
+            customer.lote = lote
+
+            customer.save()
+
+        return Response({"message": "Clientes importados correctamente"}, status=status.HTTP_200_OK)
+
 
     @action(detail=False, methods=["get"], url_path='report/debt')
     def report(self,request):
@@ -822,7 +884,6 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         
             codigo = str(row.get('Codigo')).strip()
             customer = Customer.objects.get(codigo=codigo)
-
       
             tariff = customer.category
      
@@ -1547,6 +1608,8 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 # header=2,
                 dtype={'Codigo': str}
             )
+
+            df['Codigo'] = df['Codigo'].astype(str).str.strip().str[-5:].str.zfill(5)
         except Exception as e:
             return Response({'error': f'Error al leer el archivo: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1563,8 +1626,11 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         }
 
         # 🔹 Precargar clientes del Excel
-        codigos_excel = df['Codigo'].astype(str).unique()
-        clientes = {c.codigo: c for c in Customer.objects.filter(codigo__in=codigos_excel)}
+        codigos_excel = df['Codigo'].unique()
+        clientes = {
+            c.codigo: c
+            for c in Customer.objects.filter(codigo__in=codigos_excel)
+        }
 
         debts_to_create = []
         details_to_create = []
@@ -1581,12 +1647,16 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         # df = df.head(2)
 
         for row in df.itertuples(index=False):
+
             codigo = str(row.Codigo)
+
+  
+
             year = row.anio
             meses_texto = to_none_if_empty(row.Meses)
             total = to_decimal_or_none(row.Agua)
 
-            if year != 2027:
+            if year != 2026:
                 if not meses_texto:
                     errores.append({"codigo": codigo, "anio": year, "total": total, "error": "Campo 'Meses' vacio"})
                     continue

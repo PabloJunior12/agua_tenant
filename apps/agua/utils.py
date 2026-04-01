@@ -76,6 +76,17 @@ class DebtFilter(django_filters.FilterSet):
         model = Debt
         fields = ['customer', 'paid', 'year', 'month', 'customer__codigo']
 
+def clean_value(value):
+    if pd.isna(value):
+        return None
+    
+    # Si es número (ej: 5.0 → 5)
+    if isinstance(value, (int, float)):
+        return str(int(value))
+    
+    # Si ya es string
+    return str(value).strip()
+
 def to_none_if_empty(value):
     """
     Convierte el valor a None si está vacío, es NaN o solo contiene espacios.
