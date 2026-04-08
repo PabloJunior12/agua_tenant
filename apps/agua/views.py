@@ -1263,6 +1263,10 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         zona_id = request.query_params.get("zona")
         month = request.query_params.get("month")
 
+        logo_path = None
+        if company and company.ruc:
+            logo_path = request.build_absolute_uri(f"/media/{company.ruc}.jpeg")
+
         if not zona_id:
             return Response({"error": "Debe enviar el parámetro zona"}, status=400)
 
@@ -1367,6 +1371,7 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                     {
                         "readings_context": all_readings_context,
                         "company": company,
+                        "company_logo": logo_path,
                         "zona": zona.name,
                     }
                 )
@@ -1396,6 +1401,11 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         month = request.query_params.get("month")
         calle_id = request.query_params.get("calle")
+
+            # Ruta al logo según el RUC
+        logo_path = None
+        if company and company.ruc:
+            logo_path = request.build_absolute_uri(f"/media/{company.ruc}.jpeg")
 
         if not month:
             return Response({"error": "Debe enviar el parámetro month"}, status=400)
@@ -1470,6 +1480,7 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         html_content = render_to_string("agua/recibo.html", {
             "readings_context": all_readings_context,
             "company": company,
+            "company_logo": logo_path
         })
 
         pdf_bytes = HTML(string=html_content, base_url=request.build_absolute_uri('/')).write_pdf()
