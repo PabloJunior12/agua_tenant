@@ -154,6 +154,19 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
 
         return Response({"codigo": codigo})
 
+    @action(detail=False, methods=['get'])
+    def supply_number(self, request):
+        last = Customer.objects.aggregate(max_codigo=Max('supply_number'))
+
+        if last['max_codigo']:
+            next_num = int(last['max_codigo']) + 1
+        else:
+            next_num = 1
+
+        codigo = str(next_num).zfill(5)
+
+        return Response({"supply_number": codigo})
+
     @action(detail=False, methods=["get"], url_path="by-code")
     def by_code_and_dni(self, request):
         codigo = request.query_params.get("codigo")
@@ -1238,26 +1251,35 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             "lecturas_eliminadas": deleted_count
         }, status=204)
 
-    @action(detail=True, methods=['get'])
-    def download_receipts_by_zone(self, request, pk=None):
+    @action(detail=False, methods=['get'])
+    def download_receipts_by_zone(self, request):
+
         """
-        Descargar recibos de UNA zona, divididos en varios PDFs
-        si excede el límite, dentro de un ZIP
+        Descargar recibos dinámicamente por zona + periodo
         """
+
         company = Company.objects.first()
-        generation = self.get_object()
 
         zona_id = request.query_params.get("zona")
-        if not zona_id:
-            return Response(
-                {"error": "Debe enviar el parámetro zona"},
-                status=400
-            )
+        month = request.query_params.get("month")
 
-        # 🔹 Lecturas optimizadas
+        if not zona_id:
+            return Response({"error": "Debe enviar el parámetro zona"}, status=400)
+
+        if not month:
+            return Response({"error": "Debe enviar el parámetro month"}, status=400)
+
+        # 🔹 convertir "2026-04" → date
+        try:
+            period = datetime.strptime(month, "%Y-%m").date()
+        except ValueError:
+            return Response({"error": "Formato de month inválido (YYYY-MM)"}, status=400)
+
+        # 🔹 lecturas
         readings = (
             Reading.objects.filter(
-                period=generation.period,
+                period__year=period.year,
+                period__month=period.month,
                 customer__zona_id=zona_id
             )
             .select_related("customer", "customer__zona")
@@ -1266,7 +1288,7 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                     "customer__debts",
                     queryset=Debt.objects.filter(
                         paid=False,
-                        period__lt=generation.period
+                        period__lt=period
                     ),
                     to_attr="previous_debts"
                 )
@@ -1284,9 +1306,7 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         zona = readings_list[0].customer.zona
 
         buffer = io.BytesIO()
-        zip_filename = (
-            f"recibos_zona_{zona.name}_{generation.period.strftime('%Y-%m')}.zip"
-        )
+        zip_filename = f"recibos_zona_{zona.name}_{month}.zip"
 
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
 
@@ -1299,16 +1319,15 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 for reading in chunk:
                     previous_debts = reading.customer.previous_debts
 
-                    # 🔹 Agrupar deudas por año (DECIMAL ONLY)
                     yearly_data = defaultdict(
                         lambda: {"total": Decimal("0.00"), "months": []}
                     )
 
                     for d in previous_debts:
                         year = d.period.year
-                        month = d.period.month
+                        month_d = d.period.month
                         yearly_data[year]["total"] += d.amount
-                        yearly_data[year]["months"].append(month)
+                        yearly_data[year]["months"].append(month_d)
 
                     grouped_debts = []
                     for year, data in yearly_data.items():
@@ -1327,19 +1346,14 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                             ).capitalize(),
                         })
 
-                    grouped_debts.sort(
-                        key=lambda x: x["year"],
-                        reverse=True
-                    )
+                    grouped_debts.sort(key=lambda x: x["year"], reverse=True)
 
                     total_previous_debt = sum(
                         (d.amount for d in previous_debts),
                         Decimal("0.00")
                     )
 
-                    total_general = (
-                        reading.total_amount + total_previous_debt
-                    )
+                    total_general = reading.total_amount + total_previous_debt
 
                     all_readings_context.append({
                         "reading": reading,
@@ -1348,7 +1362,6 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                         "total_general": total_general,
                     })
 
-                # 🔹 Render PDF del bloque
                 html_content = render_to_string(
                     "agua/recibo.html",
                     {
@@ -1370,28 +1383,41 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         buffer.seek(0)
         response = HttpResponse(buffer, content_type="application/zip")
-        response["Content-Disposition"] = (
-            f'attachment; filename="{zip_filename}"'
-        )
+        response["Content-Disposition"] = f'attachment; filename="{zip_filename}"'
         return response
 
-    @action(detail=True, methods=['get'])
-    def download_all_receipts(self, request, pk=None):
+    @action(detail=False, methods=['get'])
+    def download_all_receipts(self, request):
         """
         Descargar un único PDF con todos los recibos de este periodo
         dentro de un ZIP
         """
         company = Company.objects.first()
-        generation = self.get_object()
-        readings = Reading.objects.filter(period=generation.period)
-        
+
+        month = request.query_params.get("month")
         calle_id = request.query_params.get("calle")
 
-        calle = Calle.objects.get(pk = calle_id)
+        if not month:
+            return Response({"error": "Debe enviar el parámetro month"}, status=400)
 
+        # 🔹 convertir "2026-04" → date
+        try:
+            period = datetime.strptime(month, "%Y-%m").date()
+        except ValueError:
+            return Response({"error": "Formato de month inválido (YYYY-MM)"}, status=400)
+
+        # 🔹 base queryset
+        readings = Reading.objects.filter(
+            period__year=period.year,
+            period__month=period.month
+        ).select_related("customer", "customer__calle")
+
+        # 🔹 filtro por calle (opcional)
+        calle = None
         if calle_id:
-            
+            calle = Calle.objects.get(pk=calle_id)
             readings = readings.filter(customer__calle_id=calle_id)
+
 
         if not readings.exists():
             return Response(
@@ -1447,11 +1473,13 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         })
 
         pdf_bytes = HTML(string=html_content, base_url=request.build_absolute_uri('/')).write_pdf()
-
+        filename = f"recibos_{month}"
+        if calle:
+           filename = f"{calle.name}_{month}"
         # Devolvemos directamente el PDF
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = (
-            f'attachment; filename="{calle.name}_{generation.period.strftime("%Y-%m")}.pdf"'
+            f'attachment; filename="{filename}.pdf"'
         )
 
         return response

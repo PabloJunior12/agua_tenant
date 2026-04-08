@@ -225,6 +225,8 @@ class Customer(models.Model):
         ("active", "Activo"),
         ("inactive", "Inactivo"),
         ("suspended", "Suspendido"),
+        ("low", "Baja"),
+        ("observed", "Observado"),
     ]
 
     BILLING_TYPE_CHOICES = [
@@ -269,6 +271,8 @@ class Customer(models.Model):
         choices=BILLING_TYPE_CHOICES,
         default='both'
     )
+
+    observation = models.TextField(null=True, blank=True) 
 
     def __str__(self):
         return f"{self.full_name} ({self.number or 'sin DNI'})"

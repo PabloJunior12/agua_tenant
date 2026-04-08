@@ -503,6 +503,22 @@ class InvoiceSerializer(serializers.ModelSerializer):
                             invoice_payment=payment
                         )
 
+                elif installments_data:
+
+                    for inv_inst in invoice.invoice_installments.all():
+
+                        # puedes usar un concepto especial
+                        concept = CashConcept.objects.get(system_key="price_installment")
+
+                        CashMovement.objects.create(
+                            cashbox=item["cashbox"],
+                            concept=concept,
+                            method=item["method"],
+                            total=inv_inst.total,
+                            reference=item.get("reference"),
+                            invoice_payment=payment
+                        )
+
                 payments_total += item["total"]
 
             if round(payments_total, 2) != round(total, 2):
