@@ -67,7 +67,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         code_number = 10
         next_code_fixed = "0000000001"
 
-        if tenant == 'pangoa' or tenant == 'chilca':
+        if tenant == 'pangoa' or tenant == 'chilca' or tenant == 'demo':
 
            code_number = 5
            next_code_fixed = "00001"
