@@ -1,11 +1,13 @@
-from django.db import models
+
 from apps.base.models import BaseModel
-from django.core.exceptions import ValidationError
 from decimal import Decimal
 from datetime import timedelta, date
 from dateutil.relativedelta import relativedelta
+from django.core.exceptions import ValidationError
+from django.db import models, connection
 from django.utils.timezone import now
 from django.conf import settings
+
 
 class Company(models.Model):
 
@@ -225,7 +227,14 @@ class Customer(models.Model):
         ("suspended", "Suspendido"),
     ]
 
+    BILLING_TYPE_CHOICES = [
+        ('both', 'Agua y desagüe'),
+        ('water', 'Solo agua'),
+        ('sewer', 'Solo desagüe'),
+    ]
+
     codigo = models.CharField(max_length=10, null=True, blank=True)
+    supply_number = models.CharField(max_length=10, null=True, blank=True) # N° DE SUMINISTRO
     identity_document_type = models.IntegerField(default=1)
     full_name = models.CharField(max_length=200)
     number = models.CharField(max_length=15, blank=True, null=True)  # Ya no unique
@@ -253,6 +262,12 @@ class Customer(models.Model):
         max_length=10,
         choices=CONNECTION_TYPES,
         default=CONNECTION_TYPE_NEW
+    )
+
+    billing_type = models.CharField(
+        max_length=10,
+        choices=BILLING_TYPE_CHOICES,
+        default='both'
     )
 
     def __str__(self):
@@ -319,6 +334,7 @@ class Reading(models.Model):
     # -------------------------------
     # Cálculos de consumo y tarifas
     # -------------------------------
+
     def calculate_per_unit_tariff(self, tariff):
 
         """
@@ -393,33 +409,56 @@ class Reading(models.Model):
         tariff = self.customer.category
         config = Config.objects.first()
 
-        # Cargo fijo
- 
-        self.total_sewer = tariff.price_sewer or Decimal('0.00')
-        self.total_fixed_charge = tariff.price_fixed_charge or Decimal('0.00')
-        self.total_clean = tariff.price_clean or Decimal('0.00')
-        
+        tenant = connection.schema_name  # 👈 importante
+
+        billing_type = (self.customer.billing_type or 'both')
+
+        # Valores base
+        water = Decimal('0.00')
+        sewer = Decimal('0.00')
+
+        # =========================
+        # AGUA
+        # =========================
         if tariff.has_meter:
 
             if tariff.billing_mode == 'per_unit':
-                
-                self.total_water = self.calculate_per_unit_tariff(tariff)
+                water = self.calculate_per_unit_tariff(tariff)
 
             elif tariff.billing_mode == 'fixed_until_max':
-
-                self.total_water = self.calculate_fixed_until_max_tariff(tariff)
+                water = self.calculate_fixed_until_max_tariff(tariff)
 
             else:
-
-                self.total_water = self.consumption * tariff.price_water
+                water = self.consumption * tariff.price_water
         else:
+            water = tariff.price_water
 
-            # Sin medidor
-            self.total_water = tariff.price_water
-            self.previous_reading = Decimal('0.000')
-            self.consumption = Decimal('0.000')
+        # =========================
+        # DESAGÜE
+        # =========================
+        sewer = tariff.price_sewer or Decimal('0.00')
 
-        # PARA SAN MARCOS
+        # =========================
+        # 🎯 LÓGICA SOLO PARA CHILCA
+        # =========================
+        if tenant == "chilca":
+
+            if billing_type == "water":
+                sewer = Decimal('0.00')
+
+            elif billing_type == "sewer":
+                water = Decimal('0.00')
+
+            # both = normal
+
+        # =========================
+        # ASIGNACIÓN FINAL
+        # =========================
+        self.total_water = water
+        self.total_sewer = sewer
+        self.total_fixed_charge = tariff.price_fixed_charge or Decimal('0.00')
+        self.total_clean = tariff.price_clean or Decimal('0.00')
+
         subtotal = self.total_water + self.total_sewer
 
         if config.add_igv_category:
@@ -427,15 +466,9 @@ class Reading(models.Model):
         else:
             self.total_igv = Decimal('0.00')
 
-        self.sub_total_amount = (
-            
-            self.total_water +
-            self.total_sewer +
-            self.total_igv
-        )
+        self.sub_total_amount = subtotal + self.total_igv
 
         self.total_amount = (
-
             self.sub_total_amount +
             self.total_clean +
             self.total_fixed_charge
@@ -473,6 +506,7 @@ class Reading(models.Model):
     # -------------------------------
     # Sincronizacion con deudas
     # -------------------------------
+
     def _sync_debt(self):
 
         from .models import Debt, DebtDetail, CashConcept
@@ -532,6 +566,7 @@ class Reading(models.Model):
     # -------------------------------
     # Guardado con cascada
     # -------------------------------
+
     def save(self, *args, skip_process=False, **kwargs):
 
         # Primero generamos fechas automaticas
@@ -584,15 +619,13 @@ class Debt(models.Model):
     description = models.CharField(max_length=255, blank=True, null=True)
     amount = models.DecimalField(max_digits=10, decimal_places=2)  # suma de detalles
     paid = models.BooleanField(default=False)
+    is_refinanced = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     reading = models.OneToOneField("Reading", on_delete=models.SET_NULL, null=True, blank=True, related_name="debt")
 
     class Meta:
         ordering = ['-period']
-
-    def __str__(self):
-        return f"{self.customer.full_name} - {self.period.strftime('%Y-%m')} - {self.amount}"
-    
+ 
     def delete(self, *args, **kwargs):
         # Guardar el ID de la lectura antes de eliminar la deuda
         reading_id = self.reading_id
@@ -622,6 +655,40 @@ class DebtDetail(models.Model):
 
     def __str__(self):
         return f"{self.debt.customer.full_name} - {self.concept.name}: {self.amount}"
+
+# CHILCA
+
+class DebtRefinancing(models.Model):
+
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+    paid = models.BooleanField(default=False)
+
+class DebtRefinancingDetail(models.Model):
+
+    refinancing = models.ForeignKey(
+        DebtRefinancing,
+        on_delete=models.CASCADE,
+        related_name="details"
+    )
+
+    debt = models.ForeignKey(Debt, on_delete=models.PROTECT)
+
+class RefinancingInstallment(models.Model):
+
+    refinancing = models.ForeignKey(
+        DebtRefinancing,
+        on_delete=models.CASCADE,
+        related_name="installments"
+    )
+
+    number = models.IntegerField()
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+
+    paid = models.BooleanField(default=False)
+
+# END CHILCA
 
 class Invoice(models.Model):
 
@@ -734,6 +801,21 @@ class InvoiceConcept(models.Model):
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='invoice_concepts')
     concept = models.ForeignKey(CashConcept, on_delete=models.PROTECT)
     description = models.CharField(max_length=255, blank=True, null=True)
+    total = models.DecimalField(max_digits=10, decimal_places=2)
+
+class InvoiceInstallment(models.Model):
+
+    invoice = models.ForeignKey(
+        Invoice,
+        on_delete=models.CASCADE,
+        related_name='invoice_installments'
+    )
+
+    installment = models.ForeignKey(
+        RefinancingInstallment,
+        on_delete=models.CASCADE
+    )
+
     total = models.DecimalField(max_digits=10, decimal_places=2)
 
 class CashMovement(models.Model):

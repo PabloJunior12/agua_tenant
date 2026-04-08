@@ -5,7 +5,7 @@ from django.http import HttpResponse
 from django.conf import settings
 from django.utils.timezone import now, localdate
 
-from django.db import transaction
+from django.db import transaction, connection
 from django.db.models import Max, Sum, Count, Min, Q, Prefetch
 
 from rest_framework.views import APIView
@@ -24,9 +24,9 @@ from babel.dates import format_date
 from decimal import Decimal
 from apps.tenant.models import Pay
 from apps.user.models import User
-from .models import Customer, Config, DailyCashReport, WaterMeter, CashOutflow, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
+from .models import Customer, Config, DailyCashReport, DebtRefinancing, DebtRefinancingDetail, RefinancingInstallment, WaterMeter, CashOutflow, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
 from .serializers import (
-    CustomerSerializer, MorosidadSerializer, WaterMeterSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
+    CustomerSerializer, MorosidadSerializer, WaterMeterSerializer, RefinancingInstallmentSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
     ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ConfigSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer)
 from apps.agua.core.permissions import GlobalPermissionMixin, TenantPaymentCreatePermission
 
@@ -332,8 +332,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         for index, row in df.iterrows():
 
             codigo = str(row.get('c_codigo')).strip()
-
-            
+            supply_number = str(row.get('c_codigo')).strip()
 
             provincia = clean_value(row.get("cr1"))
             distrito = clean_value(row.get("cr2"))
@@ -344,10 +343,8 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             if codigo:
                codigo = codigo[-4:]
             
-            print(f"0{codigo}")
-
             customer = Customer.objects.get(codigo=f"0{codigo}")
-
+            customer.supply_number = supply_number
             customer.provincia = provincia
             customer.distrito = distrito
             customer.sector = sector
@@ -357,7 +354,6 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             customer.save()
 
         return Response({"message": "Clientes importados correctamente"}, status=status.HTTP_200_OK)
-
 
     @action(detail=False, methods=["get"], url_path='report/debt')
     def report(self,request):
@@ -1762,6 +1758,121 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED
         )
 
+    @action(detail=False, methods=['post'])
+    def refinanciar(self, request):
+
+        tenant = connection.schema_name
+
+        if tenant != "chilca":
+            raise ValidationError("Refinanciación no disponible")
+
+        customer_id = request.data.get("customer_id")
+        years = request.data.get("years", [])
+        cuotas = int(request.data.get("cuotas", 1))
+
+        if not years:
+            raise ValidationError("Debe seleccionar al menos un año")
+
+        if cuotas <= 0:
+            raise ValidationError("Cuotas inválidas")
+
+        debts = Debt.objects.filter(
+            customer_id=customer_id,
+            paid=False,
+            is_refinanced=False,
+            period__year__in=years   # 🔥 CLAVE
+        )
+
+        if not debts.exists():
+            raise ValidationError("No hay deudas válidas")
+
+        total = debts.aggregate(total=Sum('amount'))['total'] or 0
+
+        with transaction.atomic():
+
+            ref = DebtRefinancing.objects.create(
+                customer_id=customer_id,
+                total_amount=total
+            )
+
+            # vincular deudas
+            for d in debts:
+                DebtRefinancingDetail.objects.create(
+                    refinancing=ref,
+                    debt=d
+                )
+                d.is_refinanced = True
+                d.save()
+
+            # generar cuotas
+            monto_cuota = total / cuotas
+
+            for i in range(1, cuotas + 1):
+                RefinancingInstallment.objects.create(
+                    refinancing=ref,
+                    number=i,
+                    amount=monto_cuota
+                )
+
+        return Response({
+            "message": "Refinanciación creada",
+            "total": total,
+            "cuotas": cuotas
+        })
+
+    @action(detail=False, methods=['post'])
+    def preview_refinanciamiento(self, request):
+
+        customer_id = request.data.get("customer_id")
+        years = request.data.get("years", [])
+        cuotas = int(request.data.get("cuotas", 1))
+
+        debts = Debt.objects.filter(
+            customer_id=customer_id,
+            paid=False,
+            is_refinanced=False,
+            period__year__in=years
+        )
+
+        total = debts.aggregate(total=Sum('amount'))['total'] or 0
+
+        monto_cuota = round(total / cuotas, 2)
+
+        cuotas_preview = []
+
+        for i in range(1, cuotas + 1):
+            cuotas_preview.append({
+                "numero": i,
+                "monto": monto_cuota
+            })
+
+        return Response({
+            "total": total,
+            "cuotas": cuotas_preview
+        })
+
+class RefinancingInstallmentViewSet(TenantSafeMixin,viewsets.ModelViewSet):
+
+    queryset = RefinancingInstallment.objects.all()
+    serializer_class = RefinancingInstallmentSerializer
+  
+    def get_queryset(self):
+
+        queryset = super().get_queryset()
+
+        customer_id = self.request.query_params.get('customer')
+        paid = self.request.query_params.get('paid')
+
+        if customer_id:
+            queryset = queryset.filter(
+                refinancing__customer_id=customer_id  # 🔥 clave
+            )
+
+        if paid is not None:
+            queryset = queryset.filter(paid=(paid == 'true'))
+
+        return queryset.order_by('number')
+
 class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
     queryset = Invoice.objects.all().order_by('-id')
@@ -1780,6 +1891,8 @@ class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
         # Usamos la relación inversa para evitar consultas innecesarias
         payments_debts = invoice.invoice_debts.select_related('debt').order_by('debt__period')
         payments_concepts = invoice.invoice_concepts.select_related('concept').order_by('concept__code')
+        payments_installments = invoice.invoice_installments.select_related('installment__refinancing').order_by('installment__number')
+
         company = Company.objects.first()
 
 
@@ -1793,13 +1906,15 @@ class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
             "customer": invoice.customer,
             "concepts": payments_concepts,
             "payments": payments_debts,
+            "installments": payments_installments,  # 👈 NUEVO
             "total_paid": sum((p.total for p in payments_debts), 0),
             "total_paid_concept": sum((p.total for p in payments_concepts), 0),
+            # "total_paid_installments": sum((p.total for p in payments_installments), 0),  # 👈 opcional
             "company_name": company.name if company else "",
             "company_ruc": company.ruc if company else "",
             "company_logo": logo_path,
         }
-
+        
         template = get_template('agua/invoice.html')
         html_string = template.render(context)
 

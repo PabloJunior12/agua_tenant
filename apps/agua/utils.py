@@ -74,7 +74,7 @@ class DebtFilter(django_filters.FilterSet):
     class Meta:
         
         model = Debt
-        fields = ['customer', 'paid', 'year', 'month', 'customer__codigo']
+        fields = ['customer', 'paid','is_refinanced', 'year', 'month', 'customer__codigo']
 
 def clean_value(value):
     if pd.isna(value):

@@ -210,6 +210,38 @@
         </table>
         {% endif %}
 
+        {% if installments %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Cuota</th>
+                    <th>Ref.</th>
+                    <th style="text-align:right;">Total (S/)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in installments %}
+                <tr>
+                    <td>
+                        Cuota {{ item.installment.number }}
+                    </td>
+
+                    <td>
+                        Ref. #{{ item.installment.refinancing.id }}
+                    </td>
+
+                    <td style="text-align:right;">
+                        {% if invoice.status == "cancelled" %}
+                        0.00
+                        {% else %}
+                        {{ item.total|stringformat:".2f" }}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
 
         <!-- Total -->
         <div class="total-box">
