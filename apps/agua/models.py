@@ -260,14 +260,13 @@ class Customer(models.Model):
     connection_type = models.CharField(max_length=10, choices=CONNECTION_TYPES, default=CONNECTION_TYPE_NEW)
 
     # CHILCA
-    
+
     supply_number = models.CharField(max_length=10, null=True, blank=True) # N° DE SUMINISTRO
     record_number = models.CharField(max_length=20, null=True, blank=True) # N° DE EXPEDIENTE
     date_of_record = models.DateField(null=True, blank=True)
     billing_type = models.CharField(max_length=10, choices=BILLING_TYPE_CHOICES, default='both')
     observation = models.TextField(null=True, blank=True) 
 
-    
     def __str__(self):
 
         return f"{self.full_name} ({self.number or 'sin DNI'})"
