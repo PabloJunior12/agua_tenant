@@ -1104,12 +1104,10 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             "total_general": total_general,
         }]
 
-        print(readings_context)
-
         html = render_to_string("agua/recibo.html", {
             "readings_context": readings_context,
             "company": company,
-            "company_logo": logo_path
+            "company_logo": logo_path,
         })
 
         pdf_bytes = HTML(string=html, base_url=request.build_absolute_uri('/')).write_pdf()

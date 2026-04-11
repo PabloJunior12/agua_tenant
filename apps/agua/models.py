@@ -236,7 +236,7 @@ class Customer(models.Model):
     ]
 
     codigo = models.CharField(max_length=10, null=True, blank=True)
-    supply_number = models.CharField(max_length=10, null=True, blank=True) # N° DE SUMINISTRO
+    
     identity_document_type = models.IntegerField(default=1)
     full_name = models.CharField(max_length=200)
     number = models.CharField(max_length=15, blank=True, null=True)  # Ya no unique
@@ -253,28 +253,23 @@ class Customer(models.Model):
     lote = models.CharField(max_length=15, blank=True, null=True)
     nro = models.CharField(max_length=15, blank=True, null=True)
 
-    #  Nuevo campo
-    state = models.CharField(
-        max_length=15,
-        choices=ESTADO_CHOICES,
-        default="active",
-    )
+    state = models.CharField(max_length=15, choices=ESTADO_CHOICES, default="active")
 
-    connection_type = models.CharField(
-        max_length=10,
-        choices=CONNECTION_TYPES,
-        default=CONNECTION_TYPE_NEW
-    )
+    # PANGOA
 
-    billing_type = models.CharField(
-        max_length=10,
-        choices=BILLING_TYPE_CHOICES,
-        default='both'
-    )
+    connection_type = models.CharField(max_length=10, choices=CONNECTION_TYPES, default=CONNECTION_TYPE_NEW)
 
+    # CHILCA
+    
+    supply_number = models.CharField(max_length=10, null=True, blank=True) # N° DE SUMINISTRO
+    record_number = models.CharField(max_length=20, null=True, blank=True) # N° DE EXPEDIENTE
+    date_of_record = models.DateField(null=True, blank=True)
+    billing_type = models.CharField(max_length=10, choices=BILLING_TYPE_CHOICES, default='both')
     observation = models.TextField(null=True, blank=True) 
 
+    
     def __str__(self):
+
         return f"{self.full_name} ({self.number or 'sin DNI'})"
 
 class WaterMeter(models.Model):
