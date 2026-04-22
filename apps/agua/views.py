@@ -6,7 +6,7 @@ from django.conf import settings
 from django.utils.timezone import now, localdate
 
 from django.db import transaction, connection
-from django.db.models import Max, Sum, Count, Min, Q, Prefetch
+from django.db.models import Max, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery
 
 from rest_framework.views import APIView
 from rest_framework import filters, status, viewsets
@@ -24,9 +24,9 @@ from babel.dates import format_date
 from decimal import Decimal
 from apps.tenant.models import Pay
 from apps.user.models import User
-from .models import Customer, Config, DailyCashReport, DebtRefinancing, DebtRefinancingDetail, RefinancingInstallment, WaterMeter, CashOutflow, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
+from .models import Customer, ServiceCut, Config, CutBatch, DailyCashReport, DebtRefinancing, DebtRefinancingDetail, RefinancingInstallment, WaterMeter, CashOutflow, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
 from .serializers import (
-    CustomerSerializer, MorosidadSerializer, WaterMeterSerializer, RefinancingInstallmentSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
+    CustomerSerializer, ServiceCutSerializer, MorosidadSerializer, CutBatchSerializer, WaterMeterSerializer, RefinancingInstallmentSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
     ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ConfigSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer)
 from apps.agua.core.permissions import GlobalPermissionMixin, TenantPaymentCreatePermission
 
@@ -36,7 +36,7 @@ import os
 import zipfile
 import uuid
 
-from .utils import calcular_igv_simple, ReadingFilter, DebtFilter, to_none_if_empty, clean_value, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
+from .utils import calcular_igv_simple, get_morosos_queryset, ReadingFilter, DebtFilter, to_none_if_empty, clean_value, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
 from .core.mixins import TenantSafeMixin
 import mercadopago
 
@@ -2160,45 +2160,438 @@ class ConfigViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     serializer_class = ConfigSerializer
     pagination_class = CustomPagination
 
-class BaseMorosidadListView(ListAPIView):
+class MorosidadViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
     serializer_class = MorosidadSerializer
-
-    def get_queryset(self):
-        # Clientes que tienen al menos UNA deuda impaga
-        return (
-            Customer.objects
-            .filter(debts__paid=False)
-            .distinct()
-        )
-    
-class MorosidadOnTimeView(BaseMorosidadListView):
-
     pagination_class = CustomPagination
-    def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .annotate(
-                unpaid_months=Count('debts__id', filter=Q(debts__paid=False), distinct=True)
-            )
-            .filter(unpaid_months__lte=2)
-            .order_by('codigo')
+
+    @action(detail=False, methods=["get"], url_path="moroso")
+    def overdue(self, request):
+
+        zona_id = request.query_params.get("zona")
+        min_months = int(request.query_params.get("min_months", 1))
+
+        queryset = get_morosos_queryset(zona_id, min_months).order_by('codigo')
+
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
+
+    @action(detail=False, methods=["get"], url_path="export-excel")
+    def export_excel(self, request):
+
+        zona_id = request.query_params.get("zona")
+        min_months = int(request.query_params.get("min_months", 1))
+
+        queryset = get_morosos_queryset(zona_id, min_months).order_by('codigo')
+
+        data = []
+
+        for obj in queryset:
+       
+            data.append({
+                "Código": obj.codigo,
+                "Cliente": obj.full_name,
+                "Dirección": obj.address,
+                "Meses Deuda": obj.unpaid_months or 0,
+                "Total Deuda": obj.total_debt or 0,
+                "Corte Pendiente": "Sí" if obj.has_pending_cut else "No",
+                "Corte Ejecutado": "Sí" if obj.has_executed_cut else "No",
+            })
+
+        df = pd.DataFrame(data)
+
+        response = HttpResponse(
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = 'attachment; filename="morosidad.xlsx"'
+
+        with pd.ExcelWriter(response, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Morosidad')
+
+            ws = writer.sheets['Morosidad']
+
+            # 🔥 AUTOAJUSTAR COLUMNAS
+            for col in ws.columns:
+                max_length = 0
+                col_letter = col[0].column_letter
+
+                for cell in col:
+                    try:
+                        if cell.value:
+                            max_length = max(max_length, len(str(cell.value)))
+                    except:
+                        pass
+
+                ws.column_dimensions[col_letter].width = max_length + 2
+
+            # 🔥 HEADER EN NEGRITA
+            from openpyxl.styles import Font
+            for cell in ws[1]:
+                cell.font = Font(bold=True)
+
+            # 🔥 FORMATO MONEDA
+            for row in ws.iter_rows(min_row=2, min_col=6, max_col=6):
+                for cell in row:
+                    cell.number_format = '#,##0.00'
+
+            # 🔥 FORMATO FECHA
+            for row in ws.iter_rows(min_row=2, min_col=7, max_col=7):
+                for cell in row:
+                    cell.number_format = 'YYYY-MM-DD'
+
+        return response
+
+    @action(detail=False, methods=["get"], url_path="export-pdf")
+    def export_pdf(self, request):
+
+
+        zona_id = request.query_params.get("zona")
+        min_months = int(request.query_params.get("min_months", 1))
+
+        MAX_ROWS = 1000
+
+        queryset = get_morosos_queryset(zona_id, min_months).order_by('codigo')
+
+        # ✅ TOTAL REAL
+        total = 1000
+
+        # 🚨 VALIDACIÓN REAL
+        if total > MAX_ROWS:
+            return Response({
+                "error": f"El reporte PDF excede el límite ({MAX_ROWS} registros).",
+                "suggestion": "Use Excel para grandes volúmenes."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # ✅ SIN CORTE OCULTO
+        data = [
+            {
+                "codigo": obj.codigo,
+                "nombre": obj.full_name,
+                "address" : obj.address,
+                "meses": obj.unpaid_months or 0,
+                "deuda": obj.total_debt or 0,
+                "pendiente": "Sí" if obj.has_pending_cut else "No",
+                "ejecutado": "Sí" if obj.has_executed_cut else "No",
+            }
+            for obj in queryset[:1000]
+        ]
+
+        html_string = render_to_string(
+            "morosidad/morosidad_report.html",
+            {
+                "data": data,
+                "total": total,
+                "zona": zona_id or "Todas",
+                "min_months": min_months,
+                "fecha": now().strftime("%d/%m/%Y %H:%M")
+            }
         )
 
-class MorosidadOverdueView(BaseMorosidadListView):
+        response = HttpResponse(content_type='application/pdf')
 
+        # 👇 puedes elegir
+        response['Content-Disposition'] = 'attachment; filename="morosidad.pdf"'
+        # response['Content-Disposition'] = 'inline; filename="morosidad.pdf"'
+
+        HTML(string=html_string).write_pdf(response)
+
+        return response
+
+class CutBatchViewSet(TenantSafeMixin, viewsets.ModelViewSet):
+
+    queryset = CutBatch.objects.all().order_by('-id')
+    serializer_class = CutBatchSerializer
     pagination_class = CustomPagination
-    def get_queryset(self):
-        return (
-            super()
-            .get_queryset()
-            .annotate(
-                unpaid_months=Count('debts__id', filter=Q(debts__paid=False), distinct=True)
-            )
-            .filter(unpaid_months__gt=2)
-            .order_by('codigo')
+
+    @action(detail=True, methods=["get"])
+    def cuts(self, request, pk=None):
+
+        batch = self.get_object()
+
+        cuts = batch.cuts.select_related('customer').order_by(
+            'customer__sector',
+            'customer__calle',
+            'customer__nro'
         )
+
+        serializer = ServiceCutSerializer(cuts, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["get"])
+    def export_pdf(self, request, pk=None):
+
+        batch = self.get_object()
+
+        cuts = (
+            ServiceCut.objects
+            .filter(batch=batch)
+            .select_related(
+                "customer",
+                "customer__calle",
+                "customer__zona"
+            )
+            .annotate(
+                total_debt=Sum(
+                    "customer__debts__amount",
+                    filter=Q(customer__debts__paid=False)
+                ),
+                unpaid_months=Count(
+                    "customer__debts__id",
+                    filter=Q(customer__debts__paid=False),
+                    distinct=True
+                )
+            )
+            .prefetch_related("debts")
+            .order_by(
+                "customer__calle_id",
+                "customer__mz",
+                "customer__lote"
+            )
+        )
+
+        html_string = render_to_string("cut_batch/cut_batch.html", {
+            "cuts": cuts,
+            "date": batch.scheduled_date,
+            "zona": batch.sector or "-",
+            "batch": batch
+        })
+
+        html = HTML(string=html_string, base_url=request.build_absolute_uri())
+        pdf = html.write_pdf()
+
+        response = HttpResponse(pdf, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="padron_corte_{batch.id}.pdf"'
+
+        return response
+
+class ServiceCutViewSet(TenantSafeMixin,viewsets.ModelViewSet):
+
+    queryset = ServiceCut.objects.all()
+    serializer_class = ServiceCutSerializer
+    pagination_class = CustomPagination
+    filter_backends = [DjangoFilterBackend,filters.SearchFilter]
+
+    filterset_fields = ['status']  
+
+    def _build_cut_queryset(self, status):
+
+        return (
+            self.filter_queryset(self.get_queryset())
+            .filter(status=status)
+            .select_related('customer')
+            .prefetch_related('debts')
+            .order_by('customer__codigo')
+        )
+ 
+    #  GENERAR PADRÓN
+    @action(detail=False, methods=["post"])
+    def create_batch(self, request):
+
+        zone = request.data.get("zona")
+        name = request.data.get("name")
+        sector = request.data.get("sector")
+        scheduled_date = request.data.get("scheduled_date")
+        min_months = int(request.data.get("min_months", 1))
+ 
+        with transaction.atomic():
+
+            queryset = get_morosos_queryset(zone, min_months,'active')
+
+            customers = queryset.prefetch_related(
+                Prefetch(
+                    'debts',
+                    queryset=Debt.objects.filter(paid=False),
+                    to_attr='pending_debts'
+                )
+            )
+
+            if not customers.exists():
+
+                return Response({
+                    "error": "No se encontrado clientes"
+                }, status=404)
+
+
+            customer_ids = list(customers.values_list('id', flat=True))
+
+            existing_customers = set(
+                ServiceCut.objects.filter(
+                    customer_id__in=customer_ids,
+                    status="pending"
+                ).values_list("customer_id", flat=True)
+            )
+
+            # 🔥 filtrar clientes válidos
+            valid_customers = [
+                customer for customer in customers
+                if customer.id not in existing_customers
+            ]
+
+            # ❌ evitar batch vacío
+            if not valid_customers:
+                return Response({ "error": "Todos los clientes ya estan en proceso"}, status=400)
+
+            # ✅ recién aquí creas el batch
+            batch = CutBatch.objects.create(
+                name=name,
+                zone=zone,
+                sector=sector,
+                scheduled_date=scheduled_date
+            )
+
+            created = []
+
+            for customer in customers:
+
+                if customer.id in existing_customers:
+                    
+                    continue
+
+                debts = customer.pending_debts
+
+                cut = ServiceCut.objects.create(
+                    customer=customer,
+                    scheduled_date=scheduled_date,
+                    batch=batch,
+                    created_by=request.user.id
+                )
+
+                cut.debts.set(debts)
+                created.append(cut.id)
+
+        return Response({
+            "batch_id": batch.id,
+            "created": len(created)
+        })
+  
+    @action(detail=True, methods=["post"])
+    def execute(self, request, pk=None):
+
+        cut = self.get_object()
+
+        # validar estado
+        if cut.status != "pending":
+            return Response({
+                "error": "El corte no está pendiente"
+            }, status=400)
+
+        try:
+            cut.execute_cut(
+                user_id=request.user.id,
+                result=request.data.get("result", "executed"),
+                observation=request.data.get("observation")
+            )
+
+            # 🔥 actualizar estado del batch
+            batch = cut.batch
+            if batch:
+                pending_exists = batch.cuts.filter(status="pending").exists()
+
+                if pending_exists:
+                    batch.status = "in_progress"
+                else:
+                    batch.status = "completed"
+
+                batch.save()
+
+            # 🔥 devolver instancia actualizada
+            serializer = self.get_serializer(cut)
+
+            return Response(serializer.data)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+
+    @action(detail=False, methods=["get"], url_path="report-excel")
+    def report_excel(self, request):
+
+        status_param = request.query_params.get("status")
+        print(status_param)
+
+        queryset = self._build_cut_queryset(status_param)
+
+        data = []
+
+        for obj in queryset:
+
+            data.append({
+                "Código": obj.customer.codigo,
+                "Cliente": obj.customer.full_name,
+                "Dirección": obj.customer.address,
+                "Sector": obj.customer.sector,
+                "Estado Corte": obj.status,
+                "Motivo": obj.reason,
+                "Fecha Programada": obj.scheduled_date,
+                "Fecha Ejecución": obj.execution_date,
+            })
+
+        df = pd.DataFrame(data)
+
+        response = HttpResponse(
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
+        filename = f"cortes_{status_param or 'todos'}.xlsx"
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+        with pd.ExcelWriter(response, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Cortes')
+
+            ws = writer.sheets['Cortes']
+
+            # auto width
+            for col in ws.columns:
+                max_length = max(len(str(cell.value)) if cell.value else 0 for cell in col)
+                ws.column_dimensions[col[0].column_letter].width = max_length + 2
+
+        return response
+
+    @action(detail=False, methods=["get"], url_path="report-pdf")
+    def report_pdf(self, request):
+
+        MAX_ROWS = 1000
+        status_param = request.query_params.get("status")
+        status_display = dict(ServiceCut.STATUS_CHOICES).get(status_param, status_param)
+
+        queryset = self._build_cut_queryset(status_param)
+
+        total = queryset.count()
+
+        if total > MAX_ROWS:
+            return Response({
+                "error": f"El PDF excede el límite ({MAX_ROWS})",
+                "suggestion": "Use Excel para grandes volúmenes"
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        data = [
+            {
+                "codigo": obj.customer.codigo,
+                "nombre": obj.customer.full_name,
+                "direccion": obj.customer.address,
+                "sector": obj.customer.sector,
+                "estado_cliente": obj.customer.state,
+                "estado_corte": obj.get_status_display(),
+                "motivo": obj.reason,
+                "fecha_prog": obj.scheduled_date,
+                "fecha_ejec": obj.execution_date,
+                "deudas": obj.debts.count(),
+            }
+            for obj in queryset
+        ]
+
+        html_string = render_to_string("service_cut/report.html", {
+            "data": data,
+            "total": total,
+            "status": status_display  
+        })
+
+        response = HttpResponse(content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="cortes_{status_param}.pdf"'
+
+        HTML(string=html_string).write_pdf(response)
+
+        return response
 
 class DashboardSummaryAPIView(TenantSafeMixin, APIView):
 
@@ -2445,3 +2838,4 @@ class PaymentStatusView(TenantSafeMixin, APIView):
                 })
 
         return Response(data)
+

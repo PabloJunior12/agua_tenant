@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils.timezone import now
 from django.conf import settings
-from .models import Customer, WaterMeter, InvoiceInstallment, CashBox, Company, Config, CashOutflow, RefinancingInstallment, InvoiceConcept, CashMovement, DebtDetail, CashConcept, Reading, ReadingGeneration, Invoice, Category, Via, Calle, InvoiceDebt, Zona, Debt, InvoicePayment, DailyCashReport
+from .models import Customer, WaterMeter, ServiceCut, CutBatch, InvoiceInstallment, CashBox, Company, Config, CashOutflow, RefinancingInstallment, InvoiceConcept, CashMovement, DebtDetail, CashConcept, Reading, ReadingGeneration, Invoice, Category, Via, Calle, InvoiceDebt, Zona, Debt, InvoicePayment, DailyCashReport
 from .utils import next_month_date, get_reading_status
 from django.db import transaction
 from django.db.models import Sum
@@ -175,6 +175,8 @@ class MorosidadSerializer(serializers.ModelSerializer):
     last_due_date = serializers.SerializerMethodField()
     total_debt = serializers.SerializerMethodField()
     unpaid_months = serializers.SerializerMethodField()
+    has_pending_cut = serializers.BooleanField(read_only=True)
+    has_executed_cut = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Customer
@@ -188,6 +190,8 @@ class MorosidadSerializer(serializers.ModelSerializer):
             "last_due_date",
             "total_debt",
             "unpaid_months",
+            "has_pending_cut",
+            "has_executed_cut"
         ]
 
     def get_last_reading_status(self, obj):
@@ -200,12 +204,12 @@ class MorosidadSerializer(serializers.ModelSerializer):
         return d.reading.date_of_due if (d and d.reading) else None
 
     def get_total_debt(self, obj):
-        return obj.debts.filter(paid=False).aggregate(
-            total=Sum('amount')
-        )['total'] or 0
+
+        return obj.total_debt or 0
 
     def get_unpaid_months(self, obj):
-        return obj.debts.filter(paid=False).count()
+        
+        return obj.unpaid_months if hasattr(obj, 'unpaid_months') else 0
 
 class ReadingSerializer(serializers.ModelSerializer):
 
@@ -689,6 +693,34 @@ class RefinancingInstallmentSerializer(serializers.ModelSerializer):
             'paid',
             'refinancing'
         ]
+
+class CutBatchSerializer(serializers.ModelSerializer):
+
+    total_cuts = serializers.IntegerField(source="cuts.count", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+
+    class Meta:
+        model = CutBatch
+        fields = "__all__"
+
+class ServiceCutSerializer(serializers.ModelSerializer):
+
+    result_display = serializers.CharField(source="get_result_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+
+    class Meta:
+
+        model = ServiceCut
+        fields = '__all__'
+
+    def to_representation(self, instance):
+
+        data = super().to_representation(instance)
+
+        # Agregar toda la data del cliente usando CustomerSerializer
+        data['customer'] = CustomerSerializer(instance.customer).data
+
+        return data
 
 # class PaymentMethodSerializer(serializers.ModelSerializer):
 

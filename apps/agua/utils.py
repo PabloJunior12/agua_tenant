@@ -3,11 +3,11 @@ import django_filters
 import pandas as pd
 import uuid
 from django.db import transaction
-from django.db.models import Max, Sum, Count
+from django.db.models import Max, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery
 from django.utils.timezone import now, localdate
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from .models import Reading, Debt, DailyCashReport, CashBox, WaterMeter
+from .models import Reading, Debt, DailyCashReport, CashBox, WaterMeter, ServiceCut, Customer
 
 MESES = {
     "ENERO": 1,
@@ -277,3 +277,43 @@ def calcular_igv_simple(monto):
  
     igv = monto * Decimal('0.18')  # Usar Decimal, no float
     return round(igv, 2)
+
+def get_morosos_queryset(zona_id=None, min_months=1, state=None):
+
+    pending_cut_subquery = ServiceCut.objects.filter(
+        customer=OuterRef('pk'),
+        status="pending"
+    )
+
+    executed_cut_subquery = ServiceCut.objects.filter(
+        customer=OuterRef('pk'),
+        status="executed"
+    )
+
+    queryset = (
+        Customer.objects
+        .annotate(
+            unpaid_months=Count(
+                'debts__id',
+                filter=Q(debts__paid=False),
+                distinct=True
+            ),
+            total_debt=Sum(
+                'debts__amount',
+                filter=Q(debts__paid=False)
+            ),
+            has_pending_cut=Exists(pending_cut_subquery),
+            has_executed_cut=Exists(executed_cut_subquery),
+        )
+    )
+
+    queryset = queryset.filter(unpaid_months__gte=min_months)
+
+    # filtro dinámico de estado
+    if state == 'active':
+        queryset = queryset.filter(state='active')
+
+    if zona_id:
+        queryset = queryset.filter(zona_id=zona_id)
+
+    return queryset

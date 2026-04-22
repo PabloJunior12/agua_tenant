@@ -222,9 +222,18 @@ class Customer(models.Model):
     ]
 
     ESTADO_CHOICES = [
+    
+        # CHILCA Y PANGOA
+
         ("active", "Activo"),
+    
+        # PANGOA
+
         ("inactive", "Inactivo"),
         ("suspended", "Suspendido"),
+
+        # CHILCA
+
         ("low", "Baja"),
         ("observed", "Observado"),
     ]
@@ -686,6 +695,81 @@ class RefinancingInstallment(models.Model):
 
     paid = models.BooleanField(default=False)
 
+class CutBatch(models.Model):
+
+    STATUS_CHOICES = [
+        ("planned", "Planificado"),
+        ("in_progress", "En ejecución"),
+        ("completed", "Completado"),
+    ]
+
+    name = models.CharField(max_length=100)
+    sector = models.CharField(max_length=50, null=True, blank=True)
+    zone = models.CharField(max_length=50, null=True, blank=True)
+
+    scheduled_date = models.DateField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="planned")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+class ServiceCut(models.Model):
+
+    STATUS_CHOICES = [
+        ("pending", "Pendiente"),
+        ("executed", "Ejecutado"),
+        ("cancelled", "Cancelado"),
+    ]
+
+    RESULT_CHOICES = [
+        ("executed", "Cortado"),
+        ("paid", "Pagó en campo"),
+        ("not_found", "No ubicado"),
+        ("postponed", "Postergado"),
+    ]
+
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="cuts")
+    debts = models.ManyToManyField(Debt, blank=True)
+
+    batch = models.ForeignKey(
+        CutBatch,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cuts"
+    )
+
+    reason = models.CharField(max_length=255, default="Deuda pendiente")
+
+    scheduled_date = models.DateField()
+    execution_date = models.DateField(null=True, blank=True)
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+
+    result = models.CharField(max_length=20, choices=RESULT_CHOICES, null=True, blank=True)
+
+    executed_by = models.IntegerField(null=True, blank=True)
+    observation = models.TextField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.IntegerField(null=True, blank=True)
+
+    def execute_cut(self, user_id=None, result="executed", observation=None):
+
+        if self.status != "pending":
+            return
+
+        self.status = "executed"
+        self.result = result
+        self.execution_date = date.today()
+        self.created_by = user_id
+        self.executed_by = user_id
+        self.observation = observation
+        self.save()
+
+        if result == "executed":
+            self.customer.state = "low"
+            self.customer.save()
+
 # END CHILCA
 
 class Invoice(models.Model):
@@ -898,6 +982,9 @@ class Config(models.Model):
         null=True,
         verbose_name="Mercado Pago Access Token"
     )
+
+
+
 
 # class Year(models.Model):
 

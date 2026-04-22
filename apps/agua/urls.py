@@ -1,8 +1,8 @@
 from rest_framework import routers
 from django.urls import path
 from .views import (
-    CustomerViewSet, WaterMeterViewSet, CategoryViewSet, CashOutflowViewSet, ViaViewSet, CalleViewSet, CashBoxViewSet, CompanyViewSet,
-    ReadingViewSet, InvoiceViewSet, ConfigViewSet, DashboardSummaryAPIView, ZonaViewSet, DebtViewSet, RefinancingInstallmentViewSet, ReadingGenerationViewSet, CashConceptViewSet, DailyCashReportViewSet, MorosidadOnTimeView, MorosidadOverdueView, ProcessPayment, ProcessPaymentYape, PaymentStatusView
+    CustomerViewSet, WaterMeterViewSet, CutBatchViewSet, CategoryViewSet, CashOutflowViewSet, ViaViewSet, CalleViewSet, CashBoxViewSet, CompanyViewSet,
+    ReadingViewSet, InvoiceViewSet, MorosidadViewSet, ServiceCutViewSet, ConfigViewSet, DashboardSummaryAPIView, ZonaViewSet, DebtViewSet, RefinancingInstallmentViewSet, ReadingGenerationViewSet, CashConceptViewSet, DailyCashReportViewSet, ProcessPayment, ProcessPaymentYape, PaymentStatusView
 )
 
 router = routers.DefaultRouter()
@@ -24,11 +24,12 @@ router.register('readings', ReadingViewSet)
 router.register('invoices', InvoiceViewSet)
 router.register('daily-cash-report', DailyCashReportViewSet)
 router.register('installments', RefinancingInstallmentViewSet)
+router.register('service-cut', ServiceCutViewSet)
+router.register('cut-batch', CutBatchViewSet)
+router.register('morosidad', MorosidadViewSet, basename="morosidad")
 
 urlpatterns = [
 
-    path("morosidad/moroso/", MorosidadOverdueView.as_view()),
-    path("morosidad/on-time/", MorosidadOnTimeView.as_view()),
     path("summary/", DashboardSummaryAPIView.as_view()),
     path("crear-pago/", ProcessPayment.as_view()),
     path("pagar-yape/", ProcessPaymentYape.as_view()),
