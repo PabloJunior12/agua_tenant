@@ -72,7 +72,7 @@ class DebtSerializer(serializers.ModelSerializer):
 
 class CustomerSerializer(serializers.ModelSerializer):
 
-    total_debt = serializers.SerializerMethodField()
+    total_debt = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
 
     class Meta:
 
@@ -106,10 +106,6 @@ class CustomerSerializer(serializers.ModelSerializer):
             data['zona'] = None
 
         return data
-
-    def get_total_debt(self, obj):
-        # Sumamos las deudas pendientes
-        return obj.debts.filter(paid=False).aggregate(total=Sum("amount"))["total"] or 0
 
 class CustomerWithDebtsSerializer(serializers.ModelSerializer):
 

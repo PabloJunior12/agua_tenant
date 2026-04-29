@@ -2,12 +2,13 @@ import datetime
 import django_filters
 import pandas as pd
 import uuid
+import re
 from django.db import transaction
 from django.db.models import Max, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery
 from django.utils.timezone import now, localdate
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from .models import Reading, Debt, DailyCashReport, CashBox, WaterMeter, ServiceCut, Customer
+from .models import Reading, Debt, DailyCashReport, CashBox, WaterMeter, ServiceCut, Customer, Calle
 
 MESES = {
     "ENERO": 1,
@@ -24,6 +25,55 @@ MESES = {
     "NOVIEMBRE": 11,
     "DICIEMBRE": 12,
 }
+
+
+VIAS_VALIDAS = ["AV", "JR", "CALLE", "PJE", "PRLG", "SECTOR", "AUTOP","PSJE"]
+
+def extraer_via_y_nombre(address):
+    if not address:
+        return None, None
+
+    address = address.upper()
+
+    # Crear patrón dinámico con tus vías
+    vias_pattern = "|".join(VIAS_VALIDAS)
+
+    pattern = rf"\b({vias_pattern})\.?\s+([A-ZÁÉÍÓÚÑ\s]+)"
+
+    match = re.search(pattern, address)
+
+    if match:
+        via = match.group(1).strip()
+        nombre = match.group(2).strip()
+
+        # limpiar espacios extras
+        nombre = re.split(r"\s{2,}|\d", nombre)[0].strip()
+
+        return via, nombre
+
+    return None, None
+
+def obtener_calle(address):
+
+    via_str, nombre = extraer_via_y_nombre(address)
+
+    if not via_str or not nombre:
+        return None
+
+    return Calle.objects.filter(name__iexact=nombre).first() or None
+
+def obtener_billing_type(agua, desague):
+    tiene_agua = agua == "A"
+    tiene_desague = desague == "D"
+
+    if tiene_agua and tiene_desague:
+        return 'both'
+    elif tiene_agua:
+        return 'water'
+    elif tiene_desague:
+        return 'sewer'
+
+    return 'both'
 
 def next_month_date(date_obj):
     """Devuelve la fecha correspondiente al siguiente mes, con día=1."""
@@ -317,3 +367,4 @@ def get_morosos_queryset(zona_id=None, min_months=1, state=None):
         queryset = queryset.filter(zona_id=zona_id)
 
     return queryset
+

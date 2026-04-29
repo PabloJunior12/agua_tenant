@@ -6,7 +6,8 @@ from django.conf import settings
 from django.utils.timezone import now, localdate
 
 from django.db import transaction, connection
-from django.db.models import Max, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery
+from django.db.models import Max, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery, DecimalField
+from django.db.models.functions import Coalesce
 
 from rest_framework.views import APIView
 from rest_framework import filters, status, viewsets
@@ -36,7 +37,7 @@ import os
 import zipfile
 import uuid
 
-from .utils import calcular_igv_simple, get_morosos_queryset, ReadingFilter, DebtFilter, to_none_if_empty, clean_value, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
+from .utils import calcular_igv_simple, obtener_calle, obtener_billing_type, get_morosos_queryset, ReadingFilter, DebtFilter, to_none_if_empty, clean_value, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
 from .core.mixins import TenantSafeMixin
 import mercadopago
 
@@ -48,13 +49,24 @@ class CustomPagination(PageNumberPagination):
 
 class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelViewSet):
 
-    queryset = Customer.objects.all().order_by('-codigo')
+  
     serializer_class = CustomerSerializer
     pagination_class = CustomPagination
-    filter_backends = [DjangoFilterBackend,filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend,filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['codigo', 'full_name', 'number']
-
     filterset_fields = ['codigo','zona','calle']  
+
+    ordering_fields = ['total_debt','codigo']  # 👈 habilitamos orden
+    ordering = ['-codigo']  # orden por defecto
+
+    def get_queryset(self):
+        return Customer.objects.annotate(
+            total_debt=Coalesce(
+                Sum('debts__amount', filter=Q(debts__paid=False)),
+                0,
+                output_field=DecimalField(max_digits=10, decimal_places=2)
+            )
+        )
 
     def create(self, request, *args, **kwargs):
 
@@ -231,11 +243,8 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                 number = "00000000"  # Valor por defecto si está vacío o no es válido
 
             full_name = to_none_if_empty(row.get('Usuario/Cliente'))
-           
             calle_dir = row.get('cod_direc')
-          
             zona_name = to_none_if_empty(row.get('Barrio'))
-            
             nro = to_none_if_empty(row.get("Nro."))
             mz = to_none_if_empty(row.get("Mzna."))
             lote = to_none_if_empty(row.get("Lote"))
@@ -367,6 +376,212 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             customer.save()
 
         return Response({"message": "Clientes importados correctamente"}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'])
+    def import_excel_2(self, request):
+
+        file = request.FILES.get('file')
+
+        if not file:
+            return Response({'error': 'No se proporciono un archivo.'}, status=400)
+
+        try:
+            df = pd.read_excel(file, engine='openpyxl')
+        except Exception as e:
+            return Response({'error': f'Error al leer el archivo: {str(e)}'}, status=400)
+
+        # 🔥 Normalizar columnas (IMPORTANTE)
+        df.columns = df.columns.str.strip().str.upper()
+
+        default_zona = Zona.objects.first()
+
+        for _, row in df.iterrows():
+
+            # 🧾 CODIGO (antes era "Codigo")
+            codigo = str(row.get('SUMINISTRO')).strip()
+
+
+            identity_document_type = 0
+            number = "00000000"
+            provincia = row.get('CR1')
+            distrito = row.get('CR2')
+            sector = row.get('CR3')
+            mz = row.get('CR4')
+            lote = row.get('CR5')
+            sector_id = int(sector) + 1
+
+            observation = clean_value(row.get("OBSERVACIONES"))
+
+            agua = clean_value(row.get("AGUA"))
+            alcantarillado = clean_value(row.get("DESAGUE"))
+
+            is_corte = clean_value(row.get("CORTESERV"))
+
+            state = 'active'
+
+            if is_corte == "Si":
+
+               state = 'low'
+
+            billing_type = obtener_billing_type(agua, alcantarillado)
+
+            if not codigo:
+
+                continue
+
+            # 👤 NOMBRE
+            full_name = row.get('NOMBRES Y APELLIDOS')
+
+            # 📍 DIRECCION (ya viene armada)
+            address = row.get('DIRECCION')
+            # calle = obtener_calle(address)
+      
+            # 🔌 MEDIDOR
+            code = row.get('CODMEDIDOR')
+            has_meter = True if code else False
+
+            # 🧪 TARIFA (puedes mapear si quieres)
+            tarifa = str(row.get('TARIFA')).strip().upper() if row.get('TARIFA') else "DOMESTICO"
+
+            category = Category.objects.filter(name__icontains=tarifa).first()
+
+            if not category:
+
+               category = Category.objects.first()
+
+            # 📍 Zona por defecto (no viene en este Excel)
+            if sector:
+
+                zona = Zona.objects.filter(pk=sector_id).first()
+
+                if not zona:
+
+                    zona = default_zona
+            else:
+
+                zona = default_zona
+
+            # 🚧 Evitar duplicados
+            if Customer.objects.filter(codigo=codigo).exists():
+
+                continue
+
+            customer = Customer.objects.create(
+                
+                state = state,
+                codigo=codigo,
+                identity_document_type=identity_document_type,
+                number=number,
+                full_name=full_name,
+                address=address,
+                has_meter=has_meter,
+                category=category,
+                zona=zona,
+                # calle=calle,
+                provincia = provincia,
+                distrito = distrito,
+                sector = sector,
+                mz = mz,
+                lote = lote,
+                observation=observation,
+                billing_type=billing_type
+
+            )
+
+            # 🔌 Crear medidor
+            if has_meter and code:
+                if not WaterMeter.objects.filter(code=code).exists():
+                    WaterMeter.objects.create(
+                        customer=customer,
+                        code=code,
+                        installation_date=now()
+                    )
+
+        return Response({"message": "Clientes importados correctamente"}, status=200)
+
+    @action(detail=False, methods=['post'])
+    def import_excel_readings(self, request):
+
+        file = request.FILES.get('file')
+
+        if not file:
+            return Response({'error': 'No se proporciono un archivo.'}, status=400)
+
+        try:
+            df = pd.read_excel(file, engine='openpyxl')
+        except Exception as e:
+            return Response({'error': f'Error al leer el archivo: {str(e)}'}, status=400)
+
+        df.columns = df.columns.str.strip().str.upper()
+
+        month_map = {
+            "LEC. ENERO": 1,
+            "LEC. FEBRERO": 2,
+            "LEC. MARZO": 3,
+        }
+
+        created = 0
+
+        with transaction.atomic():
+
+            for _, row in df.iterrows():
+
+                codigo = str(row.get('SUMINISTRO')).strip()
+                customer = Customer.objects.filter(codigo=codigo).first()
+
+                if not customer:
+                    continue
+
+                for lect_col, month in sorted(month_map.items(), key=lambda x: x[1]):
+
+                    current_reading = to_decimal_or_none(row.get(lect_col))
+
+                    if current_reading is None:
+                        continue
+
+                    period_date = date(2026, month, 1)
+
+                    # 🚫 evitar duplicados
+                    if Reading.objects.filter(customer=customer, period=period_date).exists():
+                        continue
+
+                    last_reading = Reading.objects.filter(
+                        customer=customer,
+                        period__lt=period_date
+                    ).order_by('-period').first()
+
+                    reading = Reading(
+                        customer=customer,
+                        period=period_date,
+                        current_reading=current_reading,
+                    )
+
+                    # 🔥 primer mes → consumo 0
+                    if not last_reading:
+                        # 🔍 buscar siguiente mes para calcular diferencia
+                        next_month_col = None
+                        for col, m in sorted(month_map.items(), key=lambda x: x[1]):
+                            if m > month:
+                                next_month_col = col
+                                break
+
+                        next_reading = to_decimal_or_none(row.get(next_month_col)) if next_month_col else None
+
+                        if next_reading is not None:
+                            diff = next_reading - current_reading
+                            reading.previous_reading = current_reading - diff
+                        else:
+                            # fallback si no hay siguiente mes
+                            reading.previous_reading = current_reading
+
+                    reading.save()
+                    created += 1
+
+        # ✅ 🔥 ESTO FALTABA
+        return Response({
+            "message": "Importación completada",
+            "readings_created": created
+        }, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=["get"], url_path='report/debt')
     def report(self,request):
@@ -988,9 +1203,7 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             conceptos = {
                 "001": CashConcept.objects.get(code="001"),
                 "002": CashConcept.objects.get(code="002"),
-                # "003": CashConcept.objects.get(code="003"),
-                # "004": CashConcept.objects.get(code="004"),
-                # "005": CashConcept.objects.get(code="005"),
+
             }
 
             for reading in readings:
@@ -1024,20 +1237,6 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                         debt_details.append(
                             DebtDetail(debt=debt, concept=conceptos["002"], amount=r.total_sewer)
                         )
-                    # if r.total_fixed_charge > 0:
-                    #     debt_details.append(
-                    #         DebtDetail(debt=debt, concept=conceptos["003"], amount=r.total_fixed_charge)
-                    #     )
-
-                    # if r.total_clean > 0:
-                    #     debt_details.append(
-                    #         DebtDetail(debt=debt, concept=conceptos["004"], amount=r.total_clean)
-                    #     )
-                
-                    # if r.total_igv > 0:
-                    #     debt_details.append(
-                    #         DebtDetail(debt=debt, concept=conceptos["005"], amount=r.total_igv)
-                    #     )
 
             DebtDetail.objects.bulk_create(debt_details, ignore_conflicts=True)
 
@@ -2245,11 +2444,24 @@ class MorosidadViewSet(TenantSafeMixin, viewsets.ModelViewSet):
     @action(detail=False, methods=["get"], url_path="export-pdf")
     def export_pdf(self, request):
 
-
-        zona_id = request.query_params.get("zona")
+        zona_id = request.query_params.get("zona", None)
         min_months = int(request.query_params.get("min_months", 1))
 
         MAX_ROWS = 1000
+        
+        zona = None
+
+        if zona_id:
+
+            try:
+
+                zona = Zona.objects.get(pk=zona_id)
+
+            except Zona.DoesNotExist:
+
+                return Response({
+                    "error": "La zona no existe."
+                }, status=status.HTTP_404_NOT_FOUND)
 
         queryset = get_morosos_queryset(zona_id, min_months).order_by('codigo')
 
@@ -2282,7 +2494,7 @@ class MorosidadViewSet(TenantSafeMixin, viewsets.ModelViewSet):
             {
                 "data": data,
                 "total": total,
-                "zona": zona_id or "Todas",
+                "zona": zona.name if zona else "Todas",
                 "min_months": min_months,
                 "fecha": now().strftime("%d/%m/%Y %H:%M")
             }
