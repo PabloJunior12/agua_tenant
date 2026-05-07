@@ -1,12 +1,14 @@
 # apps/tenants/public_urls.py
 
 from django.urls import path
-from apps.tenant.views import  ClientViewSet, MercadoPagoWebhookView, TenantBackupDownloadView, TenantBackupView, GlobalBackupView, GlobalBackupDownloadView, ValidateTenantView, ConecctMineco, ImportSiafApiView, MetasView, MetasImportCsvView
+from apps.tenant.views import  ClientViewSet, ReceiptBatchViewSet, MercadoPagoWebhookView, TenantBackupDownloadView, TenantBackupView, GlobalBackupView, GlobalBackupDownloadView, ValidateTenantView, ConecctMineco, ImportSiafApiView, MetasView, MetasImportCsvView
 from rest_framework import routers
 
 router = routers.DefaultRouter()
 
 router.register("client", ClientViewSet)
+router.register("receipt-batch", ReceiptBatchViewSet)
+
 
 urlpatterns = [
 

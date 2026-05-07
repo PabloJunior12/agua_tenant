@@ -1,9 +1,12 @@
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from django.template.loader import render_to_string, get_template
-from django.http import HttpResponse
+from django.http import HttpResponse, FileResponse
 from django.conf import settings
 from django.utils.timezone import now, localdate
+
+from django_q.tasks import async_task
+from django_tenants.utils import schema_context
 
 from django.db import transaction, connection
 from django.db.models import Max, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery, DecimalField
@@ -23,14 +26,15 @@ from weasyprint import HTML
 from collections import defaultdict
 from babel.dates import format_date
 from decimal import Decimal
-from apps.tenant.models import Pay
+from apps.tenant.utils.seed import generate_ticket
+from apps.tenant.models import Pay, ReceiptBatch
 from apps.user.models import User
-from .models import Customer, ServiceCut, Config, CutBatch, DailyCashReport, DebtRefinancing, DebtRefinancingDetail, RefinancingInstallment, WaterMeter, CashOutflow, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
+from .models import Customer, MeterAssignment, ServiceCut, Config, CutBatch, DailyCashReport, DebtRefinancing, DebtRefinancingDetail, RefinancingInstallment, WaterMeter, CashOutflow, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
 from .serializers import (
-    CustomerSerializer, ServiceCutSerializer, MorosidadSerializer, CutBatchSerializer, WaterMeterSerializer, RefinancingInstallmentSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
+    CustomerSerializer, ServiceCutSerializer, MeterAssignmentSerializer, MorosidadSerializer, CutBatchSerializer, WaterMeterSerializer, RefinancingInstallmentSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
     ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ConfigSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer)
 from apps.agua.core.permissions import GlobalPermissionMixin, TenantPaymentCreatePermission
-
+from pathlib import Path
 import io
 import pandas as pd
 import os
@@ -48,17 +52,16 @@ class CustomPagination(PageNumberPagination):
     max_page_size = 100  # Tamaño máximo permitido
 
 class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelViewSet):
-
   
     serializer_class = CustomerSerializer
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend,filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['codigo', 'full_name', 'number']
-    filterset_fields = ['codigo','zona','calle']  
+    filterset_fields = ['codigo','zona','calle','state','has_meter']  
 
     ordering_fields = ['total_debt','codigo']  # 👈 habilitamos orden
     ordering = ['-codigo']  # orden por defecto
-
+    
     def get_queryset(self):
         return Customer.objects.annotate(
             total_debt=Coalesce(
@@ -90,33 +93,31 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
            next_code_fixed = "00000001"
         
         try:
-            # Validar duplicado de número si no tiene medidor
-            # if not has_meter and data.get('number'):
-            #     if Customer.objects.filter(number=data['number']).exists():
+
+            # if has_meter:
+
+            #     if not meter_data:
             #         return Response(
-            #             {'error': 'Ya existe un cliente con este numero.'},
+            #             {'error': 'Este campo es obligatorio cuando el cliente tiene medidor.'},
+            #             status=status.HTTP_400_BAD_REQUEST
+            #         )
+            #     if WaterMeter.objects.filter(code=meter_data.get('code')).exists():
+            #         return Response(
+            #             {'error': 'Este codigo de medidor ya existe.'},
             #             status=status.HTTP_400_BAD_REQUEST
             #         )
 
-            # Validar medidor antes de guardar el Customer
-            if has_meter:
-                if not meter_data:
-                    return Response(
-                        {'error': 'Este campo es obligatorio cuando el cliente tiene medidor.'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                if WaterMeter.objects.filter(code=meter_data.get('code')).exists():
-                    return Response(
-                        {'error': 'Este codigo de medidor ya existe.'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-
             with transaction.atomic():
                 # Obtener último código y sumar 1
+
                 last_code = Customer.objects.aggregate(max_code=Max('codigo'))['max_code']
+
                 if last_code:
+
                     next_code = str(int(last_code) + 1).zfill(code_number)
+
                 else:
+
                     next_code = next_code_fixed
 
                 # Asignar el nuevo código al cliente
@@ -126,16 +127,17 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                 customer_serializer.is_valid(raise_exception=True)
                 customer = customer_serializer.save()
 
-                if has_meter:
-                    WaterMeter.objects.create(
-                        customer=customer,
-                        code=meter_data['code'],
-                        installation_date=meter_data['installation_date']
-                    )
+                # if has_meter:
+                #     WaterMeter.objects.create(
+                #         customer=customer,
+                #         code=meter_data['code'],
+                #         installation_date=meter_data['installation_date']
+                #     )
 
                 return Response(CustomerSerializer(customer).data, status=status.HTTP_201_CREATED)
 
         except Exception as e:
+
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
   
     def update(self, request, *args, **kwargs):
@@ -390,26 +392,40 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         except Exception as e:
             return Response({'error': f'Error al leer el archivo: {str(e)}'}, status=400)
 
-        # 🔥 Normalizar columnas (IMPORTANTE)
         df.columns = df.columns.str.strip().str.upper()
+
+        # ordenar por suministro
+        df['SUMINISTRO_ORDER'] = pd.to_numeric(
+            df['SUMINISTRO'],
+            errors='coerce'
+        )
+
+        df = df.sort_values(
+            by='SUMINISTRO_ORDER',
+            ascending=True
+        )
 
         default_zona = Zona.objects.first()
 
+        already_installed = []
+        not_found = []
+        duplicates = []
+
         for _, row in df.iterrows():
 
-            # 🧾 CODIGO (antes era "Codigo")
-            codigo = str(row.get('SUMINISTRO')).strip()
 
+            codigo = clean_value(row.get("SUMINISTRO"))
 
             identity_document_type = 0
             number = "00000000"
-            provincia = row.get('CR1')
-            distrito = row.get('CR2')
-            sector = row.get('CR3')
-            mz = row.get('CR4')
-            lote = row.get('CR5')
-            sector_id = int(sector) + 1
 
+            provincia = clean_value(row.get("CR1"))
+            distrito = clean_value(row.get("CR2"))
+            sector = clean_value(row.get("CR3"))
+            mz = clean_value(row.get("CR4"))
+            lote = clean_value(row.get("CR5"))
+
+          
             observation = clean_value(row.get("OBSERVACIONES"))
 
             agua = clean_value(row.get("AGUA"))
@@ -437,22 +453,39 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             # calle = obtener_calle(address)
       
             # 🔌 MEDIDOR
-            code = row.get('CODMEDIDOR')
-            has_meter = True if code else False
+            meter_code = row.get('CODMEDIDOR')
+
+            meter = None
+            has_meter = False
+
+            if not pd.isna(meter_code):
+
+                meter_code = str(meter_code).strip()
+
+                # ignorar DIRECTO y DESAGUE
+                if meter_code.upper() not in ['DIRECTO', 'DESAGUE','SIN MEDIDO']:
+
+                    has_meter = True
+
+                    meter = WaterMeter.objects.filter(
+                        code=meter_code
+                    ).first()
 
             # 🧪 TARIFA (puedes mapear si quieres)
             tarifa = str(row.get('TARIFA')).strip().upper() if row.get('TARIFA') else "DOMESTICO"
 
-            category = Category.objects.filter(name__icontains=tarifa).first()
+            if has_meter:
 
-            if not category:
+                category = Category.objects.filter(name__icontains=tarifa).first()
 
-               category = Category.objects.first()
+            else:
+
+                category = Category.objects.filter(has_meter=False).first()
 
             # 📍 Zona por defecto (no viene en este Excel)
             if sector:
 
-                zona = Zona.objects.filter(pk=sector_id).first()
+                zona = Zona.objects.filter(pk=sector).first()
 
                 if not zona:
 
@@ -467,8 +500,8 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                 continue
 
             customer = Customer.objects.create(
-                
-                state = state,
+
+                state=state,
                 codigo=codigo,
                 identity_document_type=identity_document_type,
                 number=number,
@@ -477,27 +510,90 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                 has_meter=has_meter,
                 category=category,
                 zona=zona,
-                # calle=calle,
-                provincia = provincia,
-                distrito = distrito,
-                sector = sector,
-                mz = mz,
-                lote = lote,
+
+                provincia=provincia,
+                distrito=distrito,
+                sector=sector,
+                mz=mz,
+                lote=lote,
+
                 observation=observation,
                 billing_type=billing_type
-
             )
 
-            # 🔌 Crear medidor
-            if has_meter and code:
-                if not WaterMeter.objects.filter(code=code).exists():
-                    WaterMeter.objects.create(
+            # =====================================
+            # ASIGNAR MEDIDOR
+            # =====================================
+
+            if meter:
+
+                # verificar si ya está asignado
+                active_assignment = MeterAssignment.objects.filter(
+                    meter=meter,
+                    is_active=True
+                ).select_related('customer').first()
+
+                if not active_assignment:
+
+                    MeterAssignment.objects.create(
+                        meter=meter,
                         customer=customer,
-                        code=code,
-                        installation_date=now()
+                        installation_date=now().date(),
+                        is_active=True
                     )
 
-        return Response({"message": "Clientes importados correctamente"}, status=200)
+                    meter.status = 'installed'
+                    meter.save()
+
+                else:
+
+                    # cliente que ya tiene el medidor
+                    assigned_customer = active_assignment.customer
+
+                    duplicate_message = (
+                        f"MEDIDOR DUPLICADO: "
+                        f"El medidor {meter.code} ya está asignado "
+                        f"al suministro {assigned_customer.codigo} "
+                        f"({assigned_customer.full_name})."
+                    )
+
+                    # marcar cliente como observado
+                    customer.state = 'observed'
+
+                    # concatenar observación existente
+                    if customer.observation:
+                        customer.observation += f"\n{duplicate_message}"
+                    else:
+                        customer.observation = duplicate_message
+
+                    customer.save()
+
+                    already_installed.append({
+                        "suministro": codigo,
+                        "meter": meter.code,
+                        "assigned_to": assigned_customer.codigo
+                    })
+
+            elif has_meter:
+
+                # el excel dice que tiene medidor
+                # pero no existe en banco
+                not_found.append({
+                    "suministro": codigo,
+                    "meter": meter_code
+                })
+
+        return Response({
+
+            "message": "Clientes importados correctamente",
+
+            "already_installed": already_installed,
+
+            "not_found": not_found,
+
+            "duplicates": duplicates
+
+        }, status=200)
 
     @action(detail=False, methods=['post'])
     def import_excel_readings(self, request):
@@ -979,8 +1075,194 @@ class DailyCashReportViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
 class WaterMeterViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     
-    queryset = WaterMeter.objects.all()
+    queryset = WaterMeter.objects.all().order_by('-id')
     serializer_class = WaterMeterSerializer
+    pagination_class = CustomPagination
+    filter_backends = [DjangoFilterBackend,filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['code']
+    filterset_fields = ['status']  
+
+    @action(detail=True, methods=['post'])
+    def assign(self, request, pk=None):
+
+        meter = self.get_object()
+
+        if meter.status != 'available':
+            return Response({"error": "No disponible"}, status=400)
+
+        customer_id = request.data.get('customer')
+        installation_date = request.data.get('installation_date')
+
+        MeterAssignment.objects.create(
+            meter=meter,
+            customer_id=customer_id,
+            installation_date=installation_date
+        )
+
+        meter.status = 'installed'
+        meter.save()
+
+        return Response({"ok": True})
+
+    @action(detail=True, methods=['post'])
+    def remove(self, request, pk=None):
+
+        meter = self.get_object()
+
+        if meter.status != 'installed':
+            return Response({"error": "El medidor no está instalado"}, status=400)
+
+        assignment = meter.assignments.filter(is_active=True).first()
+
+        if not assignment:
+            return Response({"error": "No hay asignación activa"}, status=400)
+
+        assignment.is_active = False
+        assignment.removal_date = request.data.get('removal_date') or date.today()
+        assignment.save()
+
+        meter.status = 'removed'
+        meter.save()
+
+        return Response({"ok": True})
+
+    @action(detail=True, methods=['post'])
+    def mark_damaged(self, request, pk=None):
+
+        meter = self.get_object()
+
+        if meter.status != 'installed':
+            return Response({"error": "Solo medidores instalados pueden dañarse"}, status=400)
+
+        assignment = meter.assignments.filter(is_active=True).first()
+
+        if assignment:
+            assignment.is_active = False
+            assignment.removal_date = date.today()
+            assignment.save()
+
+        meter.status = 'damaged'
+        meter.save()
+
+        return Response({"ok": True})
+
+    @action(detail=True, methods=['post'])
+    def send_to_maintenance(self, request, pk=None):
+
+        meter = self.get_object()
+
+        if meter.status != 'damaged':
+            return Response({"error": "Solo medidores dañados"}, status=400)
+
+        meter.status = 'maintenance'
+        meter.save()
+
+        return Response({"ok": True})
+
+    @action(detail=True, methods=['post'])
+    def release(self, request, pk=None):
+
+        meter = self.get_object()
+
+        if meter.status != 'maintenance':
+            return Response({"error": "No está en mantenimiento"}, status=400)
+
+        meter.status = 'available'
+        meter.save()
+
+        return Response({"ok": True})
+
+    @action(detail=True, methods=['post'])
+    def return_to_stock(self, request, pk=None):
+
+        meter = self.get_object()
+
+        if meter.status != 'removed':
+            return Response({"error": "Solo medidores retirados"}, status=400)
+
+        meter.status = 'available'
+        meter.save()
+
+        return Response({"ok": True})
+
+    @action(detail=False, methods=['post'])
+    def import_excel(self, request):
+
+        file = request.FILES.get('file')
+
+        if not file:
+            return Response(
+                {"error": "No se envió ningún archivo."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+
+            # Leer Excel
+            df = pd.read_excel(file)
+
+            # Validar columna
+            if 'codmedidor' not in df.columns:
+                return Response(
+                    {"error": "La columna 'codmedidor' no existe."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            created = 0
+            duplicates = []
+
+            for _, row in df.iterrows():
+
+                value = row.get('codmedidor')
+                suministro = row.get('SUMINISTRO')
+
+                if pd.isna(value):
+                    continue
+
+                code = str(value).strip()
+
+                # ignorar DIRECTO y DESAGUE
+                if code.upper() in ['DIRECTO', 'DESAGUE']:
+                    continue
+
+                # duplicado
+                if WaterMeter.objects.filter(code=code).exists():
+
+                    duplicates.append({
+                        "suministro": suministro,
+                        "code": code
+                    })
+
+                    continue
+
+                WaterMeter.objects.create(
+                    code=code,
+                    status='available'
+                )
+
+                created += 1
+
+            return Response({
+                "message": "Importación completada.",
+                "created": created,
+                "duplicates": duplicates
+            })
+
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+class MeterAssignmentViewSet(viewsets.ModelViewSet):
+
+    queryset = MeterAssignment.objects.all()
+    serializer_class = MeterAssignmentSerializer
+    pagination_class = CustomPagination
+
+    filter_backends = [DjangoFilterBackend,filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['meter__code']
+    filterset_fields = ['customer__state','customer__zona']  
 
 class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
@@ -1062,9 +1344,7 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     def import_excel(self, request):
 
         month_map = {
-            "Lect.Ene": 1, "Lect.Feb": 2, "Lect.Mar": 3, "Lect.Abr": 4, "Lect.May": 5,
-            "Lect.Jun": 6, "Lect.Jul": 7, "Lect.Ago": 8, "Lect.Sep": 9, "Lect.Oct": 10,
-            "Lect.Nov": 11, "Lect.Dic": 12,
+            "Lect.Ene": 1, "Lect.Feb": 2, "Lect.Mar": 3, "Lect.Abr": 4
         }
 
         consumo_map = {
@@ -1104,141 +1384,118 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         
         registros = []
         debts = []
-        for index, row in df.iterrows():
-        
-            codigo = str(row.get('Codigo')).strip()
-            customer = Customer.objects.get(codigo=codigo)
-      
-            tariff = customer.category
-     
-            for lect_col, month in month_map.items():
+        DEFAULT_CONSUMPTION = Decimal('15')
 
-                consumo_col = [c for c, m in consumo_map.items() if m == month][0]
-                deuda_col = [c for c, m in deuda_map.items() if m == month][0]
-                pago_col = [c for c, m in pago_map.items() if m == month][0]
+        for _, row in df.iterrows():
 
-                current_reading = to_decimal_or_none(row.get(lect_col))
-                consumption = to_decimal_or_none(row.get(consumo_col))
-                deuda = to_decimal_or_none(row.get(deuda_col))
-                print(deuda)
-                pago = to_decimal_or_none(row.get(pago_col))
+            codigo = int(clean_value(row.get('Codigo')))
 
-                # Si en este mes no hay lectura, consumo, deuda ni pago → cortamos
-                if not any([current_reading, consumption, deuda, pago]):
-                   break
+            customer = Customer.objects.filter(codigo=codigo).first()
 
-                if consumption is not None:
-                    previous_reading = current_reading - consumption
-                else:
-                    previous_reading = Decimal("0.00")
+            if not customer:
+                continue
 
-                if pago and pago > 0:
+            if not customer.has_meter:
+                continue
 
-                    total_water = pago
-                    paid = True
+            # obtener lecturas válidas (> 0)
+            valid_readings = []
 
-                elif deuda and deuda > 0:
+            for col, month in month_map.items():
 
-                    total_water = deuda
-                    paid = False
+                value = to_decimal_or_none(row.get(col))
 
-                else:
+                if value is not None and value > 0:
+                    valid_readings.append((col, month, value))
 
-                    total_water = Decimal("0.00")
-                    paid = False
+            # 🚫 todas son 0 → omitir
+            if not valid_readings:
+                continue
+
+            lect13 = to_decimal_or_none(row.get('Lect.13'))
+
+            previous_reading = None
+
+            for index, (lect_col, month, current_reading) in enumerate(valid_readings):
 
                 period_date = date(2026, month, 1)
 
-                total_fixed_charge = tariff.price_fixed_charge
-                total_sewer = tariff.price_sewer
+                if Reading.objects.filter(
+                    customer=customer,
+                    period=period_date
+                ).exists():
+                    continue
 
-                subtotal = total_water + tariff.price_sewer
-                total_igv = calcular_igv_simple(subtotal)
-                total_clean = tariff.price_clean
+                # PRIMER mes válido
+                if index == 0:
 
-                sub_total_amount = (
+                    # usar Lect.13 solo si es válido
+                    if lect13 is not None and lect13 >= 0:
+                        previous_reading = lect13
+
+                    else:
+                        # reconstrucción automática
+                        previous_reading = current_reading - DEFAULT_CONSUMPTION
+
+                consumption = current_reading - previous_reading
+
+                reading = Reading(
+                    customer=customer,
+                    period=period_date,
+                    previous_reading=previous_reading,
+                    current_reading=current_reading,
+                    consumption=consumption
+                )
+
+                reading.save()
+
+                # siguiente ciclo
+                previous_reading = current_reading
+                   
+                ###########################################
+
+                # period_date = date(2026, month, 1)
+
+                # total_fixed_charge = tariff.price_fixed_charge
+                # total_sewer = tariff.price_sewer
+
+                # subtotal = total_water + tariff.price_sewer
+                # total_igv = calcular_igv_simple(subtotal)
+                # total_clean = tariff.price_clean
+
+                # sub_total_amount = (
             
-                    total_water +
-                    total_sewer +
-                    total_igv
-                )
+                #     total_water +
+                #     total_sewer +
+                #     total_igv
+                # )
 
-                total_amount = (
+                # total_amount = (
 
-                    sub_total_amount +
-                    total_clean +
-                    total_fixed_charge
-                )
+                #     sub_total_amount +
+                #     total_clean +
+                #     total_fixed_charge
+                # )
 
-                registros.append(
-                    Reading(
-                        customer = customer,
-                        period = date(2026, month, 1),
-                        current_reading = current_reading or Decimal("0.00"),
-                        previous_reading = previous_reading or Decimal("0.00"),
-                        consumption = consumption or Decimal("0.00"),
-                        total_water = total_water,
-                        total_sewer = total_sewer,
-                        total_clean = total_clean,
-                        total_fixed_charge = total_fixed_charge,
-                        total_igv = total_igv,
-                        sub_total_amount = sub_total_amount,
-                        total_amount = total_amount,
-                        paid = paid
-                    )
-                )
+                # reading = Reading(
+                #     customer = customer,
+                #     period = date(2026, month, 1),
+                #     current_reading = current_reading or Decimal("0.00"),
+                #     previous_reading = previous_reading or Decimal("0.00"),
+                #     consumption = consumption or Decimal("0.00"),
+                #     total_water = total_water,
+                #     total_sewer = total_sewer,
+                #     total_clean = total_clean,
+                #     total_fixed_charge = total_fixed_charge,
+                #     total_igv = total_igv,
+                #     sub_total_amount = sub_total_amount,
+                #     total_amount = total_amount,
+                #     paid = paid
+                # )   
 
-        # Inserción masiva ignorando duplicados
-        with transaction.atomic():
-            
-            # Guardar primero los readings
-            Reading.objects.bulk_create(registros, ignore_conflicts=True)
-    
-            readings = Reading.objects.all()
+                # reading.save()
+              
 
-            # 3. Preparar debts
-            debts = []
-            debt_details = []
-
-            conceptos = {
-                "001": CashConcept.objects.get(code="001"),
-                "002": CashConcept.objects.get(code="002"),
-
-            }
-
-            for reading in readings:
-                normalized_period = date(reading.period.year, reading.period.month, 1)
-
-                debt = Debt(
-                    customer=reading.customer,
-                    period=normalized_period,
-                    description="Deuda por consumo de agua/desagüe",
-                    amount=reading.total_amount,
-                    reading=reading
-                )
-                debts.append(debt)
-
-            # 4. Insertar los debts en lote
-            Debt.objects.bulk_create(debts, ignore_conflicts=True)
-
-            # 5. Recuperar debts creados
-            debts = Debt.objects.filter(reading__in=readings)
-
-            # 6. Generar DebtDetails en lote
-            for debt in debts:
-                    
-                    r = debt.reading
-                    
-                    if r.total_water > 0:
-                        debt_details.append(
-                            DebtDetail(debt=debt, concept=conceptos["001"], amount=r.total_water)
-                        )
-                    if r.total_sewer > 0:
-                        debt_details.append(
-                            DebtDetail(debt=debt, concept=conceptos["002"], amount=r.total_sewer)
-                        )
-
-            DebtDetail.objects.bulk_create(debt_details, ignore_conflicts=True)
 
         return Response({"message": "Lecturas importadas correctamente"}, status=status.HTTP_200_OK)
 
@@ -1247,7 +1504,8 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         """
         Generar PDF de un solo recibo (para pruebas o impresion individual)
         """ 
-   
+    
+        tenant = request.tenant.schema_name
         reading = Reading.objects.filter(customer_id=pk).order_by('-period').first()
         debt = Debt.objects.filter(customer_id=pk).order_by('-period').first()
         if not reading:
@@ -1303,11 +1561,24 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             "total_general": total_general,
         }]
 
-        html = render_to_string("agua/recibo.html", {
-            "readings_context": readings_context,
-            "company": company,
-            "company_logo": logo_path,
-        })
+        if tenant == 'chilca':
+
+            background_image = request.build_absolute_uri(f"/media/chilca.png")
+
+            html = render_to_string("agua/chilca.html", {
+                "readings_context": readings_context,
+                "company": company,
+                "company_logo": logo_path,
+                "background_image" : background_image
+            })
+
+        else:
+
+            html = render_to_string("agua/recibo.html", {
+                "readings_context": readings_context,
+                "company": company,
+                "company_logo": logo_path,
+            })
 
         pdf_bytes = HTML(string=html, base_url=request.build_absolute_uri('/')).write_pdf()
 
@@ -1315,15 +1586,38 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         response["Content-Disposition"] = f'inline; filename=recibo_{reading.customer.codigo}_{reading.period.strftime("%Y-%m")}.pdf"'
         return response
 
-# Límite seguro de recibos por PDF
-MAX_RECIBOS_POR_PDF = 100
+    @action(detail=False, methods=['get'])
+    def get_progress(self, request):
 
-def chunked_queryset(iterable, size):
-    """
-    Divide una lista en bloques de tamaño fijo
-    """
-    for i in range(0, len(iterable), size):
-        yield iterable[i:i + size]
+        period = request.query_params.get("month")
+
+        if not period:
+            return Response({"error": "month requerido"}, status=400)
+
+        year, month = map(int, period.split('-'))
+        period_date = date(year, month, 1)
+
+        readings = Reading.objects.filter(
+            customer=OuterRef('pk'),
+            period=period_date
+        )
+
+        qs = Customer.objects.filter(
+            state='active'
+        ).annotate(
+            has_reading=Exists(readings)
+        )
+
+        total = qs.count()
+        registrados = qs.filter(has_reading=True).count()
+
+        porcentaje = (registrados / total) * 100 if total else 0
+
+        return Response({
+            "total": total,
+            "registrados": registrados,
+            "porcentaje": round(porcentaje, 2)
+        })
 
 class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
@@ -1332,11 +1626,9 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
-        """
-        Genera lecturas y deudas automáticas para clientes sin medidor
-        en el periodo indicado.
-        """
+
         period_str = request.data.get("period")
+
         if not period_str:
             return Response({"error": "Falta el periodo (YYYY-MM)"}, status=400)
 
@@ -1350,7 +1642,7 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             return Response({"error": f"Ya se generaron lecturas para {period_str}."}, status=400)
 
         config = Config.objects.first()
-        customers = Customer.objects.filter(has_meter=False)
+        customers = Customer.objects.filter(has_meter=False, state='active')
         created = 0
         skipped_existing = 0
         skipped_paid = 0
@@ -1449,146 +1741,6 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         }, status=204)
 
     @action(detail=False, methods=['get'])
-    def download_receipts_by_zone(self, request):
-
-        """
-        Descargar recibos dinámicamente por zona + periodo
-        """
-
-        company = Company.objects.first()
-
-        zona_id = request.query_params.get("zona")
-        month = request.query_params.get("month")
-
-        logo_path = None
-        if company and company.ruc:
-            logo_path = request.build_absolute_uri(f"/media/{company.ruc}.jpeg")
-
-        if not zona_id:
-            return Response({"error": "Debe enviar el parámetro zona"}, status=400)
-
-        if not month:
-            return Response({"error": "Debe enviar el parámetro month"}, status=400)
-
-        # 🔹 convertir "2026-04" → date
-        try:
-            period = datetime.strptime(month, "%Y-%m").date()
-        except ValueError:
-            return Response({"error": "Formato de month inválido (YYYY-MM)"}, status=400)
-
-        # 🔹 lecturas
-        readings = (
-            Reading.objects.filter(
-                period__year=period.year,
-                period__month=period.month,
-                customer__zona_id=zona_id
-            )
-            .select_related("customer", "customer__zona")
-            .prefetch_related(
-                Prefetch(
-                    "customer__debts",
-                    queryset=Debt.objects.filter(
-                        paid=False,
-                        period__lt=period
-                    ),
-                    to_attr="previous_debts"
-                )
-            )
-            .order_by("customer__codigo")
-        )
-
-        if not readings.exists():
-            return Response(
-                {"error": "No hay recibos para esta zona"},
-                status=400
-            )
-
-        readings_list = list(readings)
-        zona = readings_list[0].customer.zona
-
-        buffer = io.BytesIO()
-        zip_filename = f"recibos_zona_{zona.name}_{month}.zip"
-
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-
-            for idx, chunk in enumerate(
-                chunked_queryset(readings_list, MAX_RECIBOS_POR_PDF),
-                start=1
-            ):
-                all_readings_context = []
-
-                for reading in chunk:
-                    previous_debts = reading.customer.previous_debts
-
-                    yearly_data = defaultdict(
-                        lambda: {"total": Decimal("0.00"), "months": []}
-                    )
-
-                    for d in previous_debts:
-                        year = d.period.year
-                        month_d = d.period.month
-                        yearly_data[year]["total"] += d.amount
-                        yearly_data[year]["months"].append(month_d)
-
-                    grouped_debts = []
-                    for year, data in yearly_data.items():
-                        grouped_debts.append({
-                            "year": year,
-                            "total": f"{data['total']:.2f}",
-                            "from_month": format_date(
-                                date(year, min(data["months"]), 1),
-                                "MMMM",
-                                locale="es"
-                            ).capitalize(),
-                            "to_month": format_date(
-                                date(year, max(data["months"]), 1),
-                                "MMMM",
-                                locale="es"
-                            ).capitalize(),
-                        })
-
-                    grouped_debts.sort(key=lambda x: x["year"], reverse=True)
-
-                    total_previous_debt = sum(
-                        (d.amount for d in previous_debts),
-                        Decimal("0.00")
-                    )
-
-                    total_general = reading.total_amount + total_previous_debt
-
-                    all_readings_context.append({
-                        "reading": reading,
-                        "grouped_debts": grouped_debts,
-                        "total_previous_debt": total_previous_debt,
-                        "total_general": total_general,
-                    })
-
-                html_content = render_to_string(
-                    "agua/recibo.html",
-                    {
-                        "readings_context": all_readings_context,
-                        "company": company,
-                        "company_logo": logo_path,
-                        "zona": zona.name,
-                    }
-                )
-
-                pdf_bytes = HTML(
-                    string=html_content,
-                    base_url=request.build_absolute_uri('/')
-                ).write_pdf()
-
-                zip_file.writestr(
-                    f"{zona.name}_parte_{idx}.pdf",
-                    pdf_bytes
-                )
-
-        buffer.seek(0)
-        response = HttpResponse(buffer, content_type="application/zip")
-        response["Content-Disposition"] = f'attachment; filename="{zip_filename}"'
-        return response
-
-    @action(detail=False, methods=['get'])
     def download_all_receipts(self, request):
         """
         Descargar un único PDF con todos los recibos de este periodo
@@ -1598,11 +1750,18 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         month = request.query_params.get("month")
         calle_id = request.query_params.get("calle")
+        tenant = request.tenant.schema_name
 
             # Ruta al logo según el RUC
         logo_path = None
+
         if company and company.ruc:
-            logo_path = request.build_absolute_uri(f"/media/{company.ruc}.jpeg")
+
+            abs_logo_path = os.path.join(settings.MEDIA_ROOT, f"{company.ruc}.jpeg")
+
+            if os.path.exists(abs_logo_path):
+                logo_path = Path(abs_logo_path).as_uri()
+
 
         if not month:
             return Response({"error": "Debe enviar el parámetro month"}, status=400)
@@ -1672,12 +1831,21 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 "total_previous_debt": total_previous_debt,
                 "total_general": total_general,
             })
+        
+        background_image = None
+        template = "agua/recibo.html"
+
+        if tenant == 'chilca':
+
+            background_image = request.build_absolute_uri(f"/media/chilca.png")
+            template = "agua/chilca.html"
 
         # Renderizamos todos los recibos (un reading por página)
-        html_content = render_to_string("agua/recibo.html", {
+        html_content = render_to_string(template, {
             "readings_context": all_readings_context,
             "company": company,
-            "company_logo": logo_path
+            "company_logo": logo_path,
+            "background_image" : background_image
         })
 
         pdf_bytes = HTML(string=html_content, base_url=request.build_absolute_uri('/')).write_pdf()
@@ -1692,6 +1860,152 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         return response
  
+    @action(detail=True, methods=['post'])
+    def generate_receipts(self, request, pk=None):
+
+        reading_generation = self.get_object()
+
+        type_ = request.data.get("type", "masivo")
+        month = request.data.get("month")
+        date_of_issue = request.data.get("date_of_issue")
+        date_of_due = request.data.get("date_of_due")
+        date_of_cute = request.data.get("date_of_cute")
+
+        updated_count = Reading.objects.filter(
+        
+            period=reading_generation.period
+        
+        ).update(
+        
+            date_of_issue=date_of_issue,
+            date_of_due=date_of_due,
+            date_of_cute=date_of_cute
+        )
+
+        schema_name = request.tenant.schema_name
+
+        if not month:
+
+            raise ValidationError("El campo 'month' es obligatorio")
+
+        try:
+            period = datetime.strptime(month, "%Y-%m").date()
+        except ValueError:
+            raise ValidationError("Formato inválido. Use YYYY-MM")
+
+        description = f"Generación masiva de recibos - Periodo: {period.strftime('%Y-%m')}"
+      
+        zona_value = None
+
+        if type_ == 'zona':
+            zona_pk = request.data.get("zona")
+
+            if not zona_pk:
+                raise ValidationError("Debe enviar zona")
+
+            zona = Zona.objects.filter(pk=zona_pk).first()
+            if not zona:
+                raise ValidationError("Zona no encontrada")
+
+            description = f"Generación de recibos - Zona: {zona.name} - Periodo: {period.strftime('%Y-%m')}"
+            zona_value = zona.pk
+
+        elif type_ != "masivo":
+            
+            raise ValidationError("Tipo inválido")
+
+        # 🔥 IMPORTANTE: transacción para evitar duplicados de ticket
+        with transaction.atomic():
+
+            ticket = generate_ticket(period)
+
+            batch = ReceiptBatch.objects.create(
+                tenant=request.tenant.schema_name,
+                period=period,
+                type=type_,
+                status="pending",
+                description=description,
+                ticket=ticket,
+                zona_id=zona_value
+            )
+
+        async_task(
+            "apps.agua.tasks.receipt_tasks.generate_receipts_task",
+            batch.id,
+            schema_name
+        )
+
+        return Response({
+            "message": (
+                f"Se ha generado un ticket para la generación de recibos. "
+                f"El número de ticket es {batch.ticket}. "
+                f"Puede verificar el estado en el módulo de Recibos."
+            ),
+            "ticket": batch.ticket,
+            "status": "started"
+        })
+    
+    @action(detail=False, methods=['get'])
+    def download_receipts(self, request):
+
+        batch_id = request.query_params.get("batch_id")
+        batch = ReceiptBatch.objects.get(id=batch_id)
+        schema_name = request.tenant.schema_name
+
+        base_path = os.path.join(
+            settings.MEDIA_ROOT,
+            "tenants",
+            schema_name,
+            "recibos",
+            batch.ticket,
+            str(batch.period)
+        )
+
+        zip_path = os.path.join(base_path, f"{batch.ticket}.zip")
+
+        # 🔥 crear zip solo si no existe
+        if not os.path.exists(zip_path):
+
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+
+                for root, dirs, files in os.walk(base_path):
+                    for file in files:
+                        if file.endswith(".pdf"):
+                            full_path = os.path.join(root, file)
+                            arcname = os.path.relpath(full_path, base_path)
+                            zipf.write(full_path, arcname)
+
+        return FileResponse(open(zip_path, 'rb'), as_attachment=True)
+
+    @action(detail=False, methods=['get'])
+    def by_period(self, request):
+
+        period = request.query_params.get("period")
+
+        if not period:
+            return Response({"error": "period requerido (YYYY-MM)"}, status=400)
+
+        try:
+            year, month = map(int, period.split('-'))
+            period_date = date(year, month, 1)
+        except:
+            return Response({"error": "Formato inválido"}, status=400)
+
+        generation = ReadingGeneration.objects.filter(period=period_date).first()
+
+        if not generation:
+            return Response({
+                "exists": False
+            })
+
+        return Response({
+            "exists": True,
+            "id": generation.id,
+            "period": generation.period,
+            "status": "open",  # luego puedes hacerlo dinámico
+            "total_generated": generation.total_generated
+        })
+
 class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     queryset = Debt.objects.all().order_by('period')

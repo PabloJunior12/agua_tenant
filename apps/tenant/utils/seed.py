@@ -1,7 +1,30 @@
 from django_tenants.utils import schema_context
 from apps.agua.models import CashBox, CashConcept, Company
+from apps.tenant.models import ReceiptBatch
 from django.utils import timezone
 from decimal import Decimal
+from django.db import transaction
+from django.db.models import Max
+
+def generate_ticket(period):
+    
+    prefix = period.strftime("%Y%m")
+
+    with transaction.atomic():
+
+        last = (
+            ReceiptBatch.objects
+            .filter(ticket__startswith=prefix)
+            .aggregate(max_ticket=Max("ticket"))
+        )["max_ticket"]
+
+        if last:
+            last_number = int(last[-8:])
+            next_number = last_number + 1
+        else:
+            next_number = 1
+
+        return f"{prefix}{str(next_number).zfill(8)}"
 
 def load_initial_data(schema_name, user, company_data):
 

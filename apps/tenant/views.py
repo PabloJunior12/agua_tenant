@@ -3,8 +3,8 @@ from rest_framework.response import Response
 from rest_framework import status, viewsets
 from django.contrib.auth import authenticate
 from django_tenants.utils import schema_context, get_tenant_model
-from .models import Client, GlobalBackup, TenantBackup, Pay
-from .serializers import ClientSerializer, GlobalBackupSerializer, TenantBackupSerializer
+from .models import Client, GlobalBackup, TenantBackup, Pay, ReceiptBatch
+from .serializers import ClientSerializer, GlobalBackupSerializer, TenantBackupSerializer, ReceiptBatchSerializer
 from apps.user.models import User,UserPermission, Module
 from apps.agua.serializers import InvoiceAutoSerializer
 from django.db import connection
@@ -133,6 +133,20 @@ class ClientViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+class ReceiptBatchViewSet(viewsets.ModelViewSet):
+
+    queryset = ReceiptBatch.objects.all().order_by('-id')
+    serializer_class = ReceiptBatchSerializer
+
+    def get_queryset(self):
+
+        tenant = self.request.query_params.get("tenant")
+
+        if not tenant:
+            return ReceiptBatch.objects.none()
+
+        return ReceiptBatch.objects.filter(tenant=tenant).order_by('-id')
 
 class ConecctMineco(APIView):
 

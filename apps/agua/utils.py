@@ -367,4 +367,3 @@ def get_morosos_queryset(zona_id=None, min_months=1, state=None):
         queryset = queryset.filter(zona_id=zona_id)
 
     return queryset
-

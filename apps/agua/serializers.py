@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils.timezone import now
 from django.conf import settings
-from .models import Customer, WaterMeter, ServiceCut, CutBatch, InvoiceInstallment, CashBox, Company, Config, CashOutflow, RefinancingInstallment, InvoiceConcept, CashMovement, DebtDetail, CashConcept, Reading, ReadingGeneration, Invoice, Category, Via, Calle, InvoiceDebt, Zona, Debt, InvoicePayment, DailyCashReport
+from .models import Customer, WaterMeter, ServiceCut, MeterAssignment, CutBatch, InvoiceInstallment, CashBox, Company, Config, CashOutflow, RefinancingInstallment, InvoiceConcept, CashMovement, DebtDetail, CashConcept, Reading, ReadingGeneration, Invoice, Category, Via, Calle, InvoiceDebt, Zona, Debt, InvoicePayment, DailyCashReport
 from .utils import next_month_date, get_reading_status
 from django.db import transaction
 from django.db.models import Sum
@@ -29,19 +29,6 @@ class CalleSerializer(serializers.ModelSerializer):
 
         model = Calle
         fields = ['id', 'via', 'via_name', 'name','codigo','zona']
-
-class WaterMeterSerializer(serializers.ModelSerializer):
-
-    customer = serializers.PrimaryKeyRelatedField(queryset=Customer.objects.all())
-
-    class Meta:
-        model = WaterMeter
-        fields = ['id', 'code', 'installation_date', 'customer']
-
-    def validate_customer(self, value):
-        if WaterMeter.objects.filter(customer=value).exists():
-            raise serializers.ValidationError("Este cliente ya tiene un medidor asignado.")
-        return value
 
 class CategorySerializer(serializers.ModelSerializer):
 
@@ -73,6 +60,8 @@ class DebtSerializer(serializers.ModelSerializer):
 class CustomerSerializer(serializers.ModelSerializer):
 
     total_debt = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    current_meter = serializers.SerializerMethodField()
+
 
     class Meta:
 
@@ -106,6 +95,21 @@ class CustomerSerializer(serializers.ModelSerializer):
             data['zona'] = None
 
         return data
+    
+    def get_current_meter(self, obj):
+
+        assignment = obj.meterassignment_set.filter(
+            is_active=True
+        ).select_related('meter').first()
+
+        if not assignment:
+            return None
+
+        return {
+            "id": assignment.meter.id,
+            "code": assignment.meter.code,
+            "status": assignment.meter.status
+        }
 
 class CustomerWithDebtsSerializer(serializers.ModelSerializer):
 
@@ -126,6 +130,47 @@ class CustomerWithDebtsSerializer(serializers.ModelSerializer):
     def get_total_debt(self, obj):
         # Sumamos las deudas pendientes
         return obj.debts.filter(paid=False).aggregate(total=Sum("amount"))["total"] or 0
+
+class CustomerWaterMeterSerializer(serializers.ModelSerializer):
+
+    zona = ZonaSerializer()
+
+    class Meta:
+
+        model = Customer
+        fields = '__all__'
+
+class WaterMeterSerializer(serializers.ModelSerializer):
+
+    current_customer = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WaterMeter
+        fields = '__all__'  # incluye el campo extra automáticamente
+
+    def get_current_customer(self, obj):
+
+        assignment = obj.assignments.filter(is_active=True)\
+            .select_related('customer')\
+            .first()
+
+        if not assignment:
+            return None
+
+        return {
+            "id": assignment.customer.id,
+            "full_name": assignment.customer.full_name,
+            "number": assignment.customer.number
+        }
+
+class MeterAssignmentSerializer(serializers.ModelSerializer):
+
+    customer = CustomerWaterMeterSerializer()
+    meter = WaterMeterSerializer()
+
+    class Meta:
+        model = MeterAssignment
+        fields = '__all__'
 
 class CashBoxSerializer(serializers.ModelSerializer):
 

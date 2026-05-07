@@ -86,3 +86,40 @@ class Pay(models.Model):
     raw = models.JSONField()
     processed = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+
+class ReceiptBatch(models.Model):
+    
+    STATUS_CHOICES = [
+        ("pending", "Pendiente"),
+        ("processing", "Procesando"),
+        ("done", "Completado"),
+        ("error", "Error"),
+    ]
+
+    TYPE_CHOICES = [
+        ("masivo", "Masivo"),
+        ("zona", "Zona"),
+        ("calle", "Calle"),
+    ]
+
+    tenant = models.CharField(max_length=50)
+ 
+    period = models.DateField()
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    type = models.CharField(max_length=20, choices=TYPE_CHOICES, default="masivo")
+
+    description = models.TextField(null=True, blank=True)
+    zona_id = models.IntegerField(null=True, blank=True)
+
+    progress = models.IntegerField(default=0)
+
+    total_records = models.IntegerField(default=0)
+    processed_records = models.IntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    ticket = models.CharField(max_length=20, unique=True, editable=False)
+
+    error = models.TextField(null=True, blank=True)

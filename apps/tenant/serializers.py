@@ -1,6 +1,14 @@
 # apps/tenants/api/serializers.py
 from rest_framework import serializers
-from .models import Client, GlobalBackup, TenantBackup
+from .models import Client, GlobalBackup, TenantBackup, ReceiptBatch
+
+
+class ReceiptBatchSerializer(serializers.ModelSerializer):
+    
+    class Meta:
+        
+        model = ReceiptBatch
+        fields = "__all__"
 
 class ClientSerializer(serializers.ModelSerializer):
     

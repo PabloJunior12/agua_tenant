@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Recibo de Agua</title>
+    <style>
+        @page {
+            size: A5 portrait;
+            margin: 0;
+
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial;
+        }
+
+
+        .page {
+            width: 148mm;
+            height: 210mm;
+            background-image: url("{{ background_image }}");
+            background-size: cover;
+            background-repeat: no-repeat;
+            position: relative;
+        }
+
+        .name {
+            position: absolute;
+            top: 29mm;
+            left: 17mm;
+            font-size: 10px !important;
+        }
+
+        .address {
+            position: absolute;
+            top: 34.5mm;
+            left: 18mm;
+            font-size: 10px !important;
+        }
+
+        .zona {
+            position: absolute;
+            top: 40.3mm;
+            left: 17mm;
+            font-size: 10px !important;
+        }
+
+        .codigo {
+            position: absolute;
+            top: 9mm;
+            right: 51mm;
+            font-size: 10px !important;
+        }
+
+        .id {
+            position: absolute;
+            top: 9mm;
+            right: 25mm;
+            font-size: 10px !important;
+        }
+
+        .meter-code {
+            position: absolute;
+            top: 17mm;
+            right: 47mm;
+            font-size: 10px !important;
+        }
+
+        .ciclo-facturado {
+            position: absolute;
+            top: 17mm;
+            right: 18mm;
+            font-size: 10px !important;
+        }
+
+        .codigo-catastral {
+            position: absolute;
+            top: 27mm;
+            right: 35mm;
+            font-size: 10px !important;
+        }
+
+        .consumo {
+            position: absolute;
+            top: 36mm;
+            right: 32mm;
+            font-size: 10px !important;
+        }
+
+        .tarifa {
+            position: absolute;
+            top: 56.5mm;
+            right: 67mm;
+            font-size: 10px !important;
+        }
+
+
+        /* CONCEPTO */
+
+        .concepto {
+
+            position: absolute;
+
+            top: 76mm;
+            left: 10mm;
+
+            width: 118mm;
+            height: 48mm;
+        }
+
+        /* DEUDAS */
+
+        .deudas {
+            position: absolute;
+
+            top: 0;
+            left: 0;
+
+            width: 50mm;
+
+            font-size: 3.3mm;
+        }
+
+        /* FACTURACION */
+
+        .facturacion {
+            position: absolute;
+
+            top: 0;
+            left: 72mm;
+
+            width: 50mm;
+
+            font-size: 3mm;
+        }
+
+        /* TITULOS */
+
+        .titulo {
+
+            text-align: center;
+            font-weight: bold;
+            font-size: 2.5mm;
+            line-height: 1.1;
+            margin-bottom: 4mm;
+        }
+
+
+        /* TABLAS */
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+
+        tr {
+            height: 5mm;
+        }
+
+
+        td {
+            vertical-align: top;
+
+            line-height: 1.1;
+        }
+
+
+        /* TEXTO */
+
+        .label {
+            width: 70%;
+        }
+
+
+        .amount {
+
+            width: 30%;
+            text-align: right;
+            white-space: nowrap;
+
+        }
+
+
+        .bold {
+
+            font-weight: bold;
+
+        }
+
+        /* LINEAS */
+
+        .line-top td {
+
+            border-top: 0.3mm solid black;
+            padding-top: 1mm;
+
+        }
+
+
+        /* TOTAL FINAL */
+
+        .total-final{
+
+            position: absolute;
+            top: 129mm;
+            right: 15mm;
+            font-size: 4mm;
+            font-weight: bold;
+
+        }
+
+        .date_of_issue{
+
+            position: absolute;
+            top: 140mm;
+            left: 30mm;
+            font-size: 4mm;
+
+
+        }
+
+        .date_of_due{
+
+            position: absolute;
+            top: 140mm;
+            right: 30mm;
+            font-size: 4mm;
+
+        }
+
+        .talon{
+
+            width: 100mm;
+            position: absolute;
+            top: 158mm;
+            left: 20mm;
+            font-size: 4mm;
+            text-align: center;
+
+        }
+
+        .date_of_due_last{
+
+            position: absolute;
+            bottom:8mm;
+            left: 15mm;
+            font-size: 4mm;
+
+        }
+
+        .ciclo_facturado_2{
+
+            position: absolute;
+            bottom:8mm;
+            left: 61mm;
+            font-size: 4mm;
+
+        }
+
+        .total_paid_2{
+
+            position: absolute;
+            bottom:8mm;
+            right: 25mm;
+            font-size: 4mm;
+
+        }
+
+    </style>
+</head>
+
+<body>
+    {% for ctx in readings_context %}
+    {% with reading=ctx.reading grouped=ctx.grouped_debts total_previous=ctx.total_previous_debt total_general=ctx.total_general %}
+
+    <div class="page">
+        <div class="name">
+            {{ reading.customer.full_name }}
+        </div>
+        <div class="address">
+            {{ reading.customer.address }}
+        </div>
+        <div class="zona">
+            CHILCA
+        </div>
+
+        <div class="codigo">
+            {{ reading.customer.codigo }}
+        </div>
+
+        <div class="id">
+            {{ reading.id }}
+        </div>
+
+        <div class="meter-code">
+            {{ reading.meter.code|default:"-" }}
+        </div>
+
+        <div class="ciclo-facturado">
+            {{ reading.period|date:"F - Y"|capfirst }}
+        </div>
+
+        <div class="codigo-catastral">
+            {{ reading.customer.provincia }} {{ reading.customer.distrito }} {{ reading.customer.sector }} {{ reading.customer.mz }} {{ reading.customer.lote }}
+        </div>
+
+        <div class="consumo">
+
+            <table>
+                <tr>
+                    <td><strong>Lectura Actual:</strong></td>
+                    <td>{{ reading.current_reading }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Lectura Anterior:</strong></td>
+                    <td>{{ reading.previous_reading }}</td>
+                </tr>
+                <tr>
+                    <td><strong>Consumo:</strong></td>
+                    <td>{{ reading.consumption }}</td>
+                </tr>
+            </table>
+
+        </div>
+
+        <div class="tarifa">{{ reading.customer.category.name }}</div>
+
+
+        <div class="concepto">
+
+            <!-- DEUDAS -->
+            <div class="deudas debug">
+
+                <div class="titulo">DEUDAS ANTERIORES</div>
+
+                {% if grouped %}
+                <table>
+
+                    {% for d in grouped %}
+                    <tr>
+                        <td class="label">
+                            {{ d.from_month }} - {{ d.to_month }} {{ d.year }}
+                        </td>
+
+                        <td class="amount">
+                            {{ d.total }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+
+                    <tr class="line-top total-row">
+                        <td class="label bold">
+                            TOTAL DEUDA
+                        </td>
+
+                        <td class="amount bold">
+                            {{ total_previous }}
+                        </td>
+                    </tr>
+
+                </table>
+                {% endif %}
+            </div>
+
+
+            <!-- FACTURACION -->
+            <div class="facturacion debug">
+
+                <div class="titulo">
+                    DETALLE DE FACTURACIÓN
+                </div>
+
+                <table>
+
+                    <tr>
+                        <td class="label">Servicio de agua</td>
+                        <td class="amount">{{ reading.total_water }}</td>
+                    </tr>
+
+                    <tr>
+                        <td class="label">Servicio de alcantarillado</td>
+                        <td class="amount">{{ reading.total_sewer }}</td>
+                    </tr>
+
+                    <tr>
+                        <td class="label">Total del mes</td>
+                        <td class="amount">{{ reading.total_amount }}</td>
+                    </tr>
+
+                    <tr>
+                        <td class="label">Saldo deuda anterior</td>
+                        <td class="amount">{{ total_previous }}</td>
+                    </tr>
+
+                </table>
+
+            </div>
+
+        </div>
+
+        <div class="total-final"> S/ {{ total_general }}</div>
+
+        <div class="date_of_issue">{{ reading.date_of_issue|date:"d-m-Y" }}</div>
+
+        <div class="date_of_due">{{ reading.date_of_due|date:"d-m-Y" }}</div>
+
+        <div class="talon">
+
+            "Cancele a tiempo su Recibo para evitar corte y pago de reapertura por el servicio"
+
+        </div>
+        
+        <div class="date_of_due_last">{{ reading.date_of_due|date:"d-m-Y" }}</div>
+
+        <div class="ciclo_facturado_2">
+            {{ reading.period|date:"F - Y"|capfirst }}
+        </div>
+
+        <div class="total_paid_2"> S/ {{ total_general }}</div>
+
+    </div>
+
+    {% if not forloop.last %}
+    <div style="page-break-after: always;"></div>
+    {% endif %}
+
+    {% endwith %}
+    {% endfor %}
+</body>
+
+</html>

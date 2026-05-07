@@ -39,9 +39,8 @@
     "model": "user.module",
     "pk": 4,
     "fields": {
-      "name": "Generar deudas",
-      "code": "debt-generation",
-      "path": "/dashboard/debt-generation",
+      "name": "Lectura",
+      "code": "reading",
       "icon": "fa-regular fa-address-book",
       "parent": null,
       "order" : 4
@@ -165,5 +164,43 @@
       "parent": null,
       "order" : 14
     }
+  },
+  {
+    "model": "user.module",
+    "pk": 15,
+    "fields": {
+      "name": "Recibos",
+      "code": "receipt",
+      "path": "/dashboard/reading/receipt",
+      "icon": "fa-solid fa-chart-line",
+      "parent": 4,
+      "order" : 17
+    }
+  },
+
+  {
+    "model": "user.module",
+    "pk": 16,
+    "fields": {
+      "name": "Generar deudas",
+      "code": "period-list",
+      "path": "/dashboard/reading/period-list",
+      "icon": "fa-solid fa-chart-line",
+      "parent": 4,
+      "order" : 15
+    }
+  },
+  {
+    "model": "user.module",
+    "pk": 17,
+    "fields": {
+      "name": "Lecturador",
+      "code": "reader",
+      "path": "/dashboard/reading/reader",
+      "icon": "fa-solid fa-chart-line",
+      "parent": 4,
+      "order" : 16
+    }
   }
+
 ]

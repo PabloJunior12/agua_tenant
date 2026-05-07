@@ -8,7 +8,6 @@ from django.db import models, connection
 from django.utils.timezone import now
 from django.conf import settings
 
-
 class Company(models.Model):
 
     name = models.CharField(max_length=255, verbose_name="Nombre de la empresa")
@@ -234,8 +233,10 @@ class Customer(models.Model):
 
         # CHILCA
 
-        ("low", "Baja"),
         ("observed", "Observado"),
+        ("cut", "Cortado"),
+        ("low", "Baja"),
+        
     ]
 
     BILLING_TYPE_CHOICES = [
@@ -253,7 +254,7 @@ class Customer(models.Model):
     has_meter = models.BooleanField(default=True)
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="customers")
     calle = models.ForeignKey(Calle, on_delete=models.PROTECT, null=True)
-    zona = models.ForeignKey(Zona, on_delete=models.PROTECT, null=True)
+    zona = models.ForeignKey(Zona, on_delete=models.PROTECT, null=True, related_name="customers")
 
     provincia = models.CharField(max_length=15, blank=True, null=True)
     distrito = models.CharField(max_length=15, blank=True, null=True)
@@ -281,17 +282,52 @@ class Customer(models.Model):
         return f"{self.full_name} ({self.number or 'sin DNI'})"
 
 class WaterMeter(models.Model):
-    
-    customer = models.OneToOneField(Customer, on_delete=models.CASCADE, related_name="meter")
-    code = models.CharField(max_length=50, unique=True)  # único globalmente
-    installation_date = models.DateField()
+
+    STATUS_CHOICES = [
+        ('available', 'Disponible'),
+        ('installed', 'Instalado'),
+        ('removed', 'Retirado'),
+        ('damaged', 'Dañado'),
+        ('maintenance', 'Mantenimiento'),
+    ]
+
+    code = models.CharField(max_length=50, unique=True)
+    brand = models.CharField(max_length=50, null=True, blank=True)
+    model = models.CharField(max_length=50, null=True, blank=True)
+    diameter = models.CharField(max_length=10, null=True, blank=True)
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='available')
+
+    purchase_date = models.DateField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.code} - {self.customer.full_name}"
+        return f"{self.code} ({self.status})"
+
+class MeterAssignment(models.Model):
+
+    meter = models.ForeignKey(WaterMeter, on_delete=models.CASCADE, related_name="assignments")
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
+
+    installation_date = models.DateField()
+    removal_date = models.DateField(null=True, blank=True)
+
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"{self.meter.code} → {self.customer.full_name}" 
 
 class Reading(models.Model):
     
     customer = models.ForeignKey('Customer', related_name='readings', on_delete=models.CASCADE)
+
+    meter = models.ForeignKey(   # 👈 CLAVE
+        WaterMeter,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
 
     # Usas este campo como "mes facturado"
     period = models.DateField()
@@ -323,6 +359,8 @@ class Reading(models.Model):
     paid = models.BooleanField(default=False)
     has_meter = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
 
     class Meta:
 
@@ -388,26 +426,19 @@ class Reading(models.Model):
 
     def calculate_consumption(self):
 
-        tariff = self.customer.category
+        if self.meter:
 
-        self.has_meter = self.customer.has_meter
-
-        if tariff.has_meter:
-
-            # Buscar lectura anterior
             previous = Reading.objects.filter(
                 customer=self.customer,
                 period__lt=self.period
             ).order_by('-period').first()
 
             if previous:
-
                 self.previous_reading = previous.current_reading
-   
+
             self.consumption = Decimal(self.current_reading) - Decimal(self.previous_reading)
 
         else:
-            # Sin medidor: todo fijo
             self.previous_reading = Decimal('0.000')
             self.consumption = Decimal('0.000')
 
@@ -576,8 +607,18 @@ class Reading(models.Model):
 
     def save(self, *args, skip_process=False, **kwargs):
 
-        # Primero generamos fechas automaticas
-        self.set_billing_dates()
+
+        assignment = MeterAssignment.objects.filter(
+            customer=self.customer,
+            is_active=True
+        ).select_related('meter').first()
+
+        if assignment:
+            self.meter = assignment.meter
+            self.has_meter = True
+        else:
+            self.has_meter = False
+
 
         if not skip_process:
 

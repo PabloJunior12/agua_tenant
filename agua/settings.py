@@ -28,6 +28,7 @@ SHARED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'django_filters',
+    'django_q',  
 
 ]
 
@@ -153,3 +154,14 @@ BACKUP_TENANT_PATH = BASE_DIR / "backups" / "tenants"
 
 MP_ACCESS_TOKEN="APP_USR-5776140338113863-121820-5485b8aea2d65b5c59e79ff2bff8526c-3078421227"
 MP_WEBHOOK_URL="https://api.ugm.pe/api/webhooks/mercadopago/"
+
+Q_CLUSTER = {
+    'name': 'agua-cluster',
+    'workers': 4,
+    'timeout': 1200,  # 20 min (PDF puede ser pesado)
+    'retry': 1300,
+    'queue_limit': 50,
+    'bulk': 10,
+    'orm': 'default',
+}
+
