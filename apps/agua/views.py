@@ -1426,6 +1426,14 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 ).exists():
                     continue
 
+                if customer.state == 'observed': 
+
+                   continue
+
+                if not customer.has_meter:
+                    
+                    continue
+
                 # PRIMER mes válido
                 if index == 0:
 

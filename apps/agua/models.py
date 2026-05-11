@@ -101,13 +101,19 @@ class Category(models.Model):
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
 
-    min_consumption = models.IntegerField(null=True, blank=True)  # Desde qué m³ aplica
-    max_consumption = models.IntegerField(null=True, blank=True)
-
-    extra_rate = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    # WATER
 
     price_water = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Precio de agua")
+    extra_rate = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    # SEWER
+
     price_sewer = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Precio de alcantarillado")
+    extra_rate_sewer = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    
+    min_consumption = models.IntegerField(null=True, blank=True)  # Desde qué m³ aplica
+    max_consumption = models.IntegerField(null=True, blank=True)
+   
     price_fixed_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     price_clean = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
@@ -220,6 +226,13 @@ class Customer(models.Model):
         (CONNECTION_TYPE_OLD, 'Conexión antigua'),
     ]
 
+    SOURCE_CHOICES_COMPANY = 'company'
+
+    SOURCE_CHOICES = [
+        ('well', 'Pozo'),
+        ('company', 'Empresa'),
+    ]
+
     ESTADO_CHOICES = [
     
         # CHILCA Y PANGOA
@@ -271,6 +284,7 @@ class Customer(models.Model):
 
     # CHILCA
 
+    source_type = models.CharField(max_length=20, choices=SOURCE_CHOICES, default=SOURCE_CHOICES_COMPANY)
     supply_number = models.CharField(max_length=10, null=True, blank=True) # N° DE SUMINISTRO
     record_number = models.CharField(max_length=20, null=True, blank=True) # N° DE EXPEDIENTE
     date_of_record = models.DateField(null=True, blank=True)
@@ -360,8 +374,6 @@ class Reading(models.Model):
     has_meter = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
-
-
     class Meta:
 
         unique_together = ('customer', 'period')
@@ -380,7 +392,7 @@ class Reading(models.Model):
     # Cálculos de consumo y tarifas
     # -------------------------------
 
-    def calculate_per_unit_tariff(self, tariff):
+    def calculate_water_total(self, tariff):
 
         """
         Modo estándar:
@@ -389,40 +401,78 @@ class Reading(models.Model):
         y el exceso a extra_rate
         """
 
-        consumo = self.consumption or Decimal('0.000')
+        consumo = self.consumption or Decimal('0.00')
 
-        # Si no hay límite configurado
         if not tariff.max_consumption:
             return consumo * tariff.price_water
 
-        # Hay límite
-        maximo = tariff.max_consumption
-        precio_base = tariff.price_water
-        precio_extra = tariff.extra_rate or Decimal('0.00')
+        consumo_base = min(consumo, tariff.max_consumption)
+        exceso = max(consumo - tariff.max_consumption, Decimal('0.00'))
 
-        consumo_base = min(consumo, maximo)
-        exceso = max(consumo - maximo, Decimal('0.000'))
+        total = (
+            (consumo_base * tariff.price_water)
+            + (exceso * tariff.extra_rate)
+        )
 
-        return (consumo_base * precio_base) + (exceso * precio_extra)
+        return total
 
-    def calculate_fixed_until_max_tariff(self, tariff):
+    def calculate_sewer_total(self, tariff):
 
-        """
-        Fijo hasta máximo y luego extra por exceso
-        """
-        consumo = self.consumption or Decimal('0.000')
-        fijo = tariff.price_water
-        maximo = tariff.max_consumption or Decimal('0.000')
-        extra = tariff.extra_rate or Decimal('0.00')
+        tenant = connection.schema_name
 
-        if consumo <= maximo:
+        consumo = self.consumption or Decimal('0.00')
 
-            return fijo
+        # =====================================
+        # PANGOA → DESAGÜE FIJO
+        # =====================================
+        if tenant == "pangoa":
+
+            return tariff.price_sewer or Decimal('0.00')
+
+        # =====================================
+        # CHILCA → DESAGÜE POR m3
+        # =====================================
+        elif tenant == "chilca":
+
+            if tariff.max_consumption:
+
+                consumo_base = min(consumo, tariff.max_consumption)
+
+                exceso = max(
+                    consumo - tariff.max_consumption,
+                    Decimal('0')
+                )
+
+                return (
+                    (consumo_base * tariff.price_sewer)
+                    + (exceso * tariff.extra_rate_sewer)
+                )
+
+            return consumo * tariff.price_sewer
+
+        # =====================================
+        # DEFAULT
+        # =====================================
+        return tariff.price_sewer or Decimal('0.00')
+
+    # def calculate_fixed_until_max_tariff(self, tariff):
+
+    #     """
+    #     Fijo hasta máximo y luego extra por exceso
+    #     """
+    #     consumo = self.consumption or Decimal('0.000')
+    #     fijo = tariff.price_water
+    #     maximo = tariff.max_consumption or Decimal('0.000')
+    #     extra = tariff.extra_rate or Decimal('0.00')
+
+    #     if consumo <= maximo:
+
+    #         return fijo
         
-        else:
+    #     else:
 
-            exceso = consumo - maximo
-            return fijo + (exceso * extra)
+    #         exceso = consumo - maximo
+    #         return fijo + (exceso * extra)
 
     def calculate_consumption(self):
 
@@ -461,20 +511,27 @@ class Reading(models.Model):
         if tariff.has_meter:
 
             if tariff.billing_mode == 'per_unit':
-                water = self.calculate_per_unit_tariff(tariff)
 
-            elif tariff.billing_mode == 'fixed_until_max':
-                water = self.calculate_fixed_until_max_tariff(tariff)
+                water = self.calculate_water_total(tariff)
+                sewer = self.calculate_sewer_total(tariff)
+
+            # elif tariff.billing_mode == 'fixed_until_max':
+
+            #     water = self.calculate_fixed_until_max_tariff(tariff)
 
             else:
-                water = self.consumption * tariff.price_water
-        else:
-            water = tariff.price_water
 
+                water = self.consumption * tariff.price_water
+                sewer = tariff.price_sewer or Decimal('0.00')
+
+        else:
+
+            water = tariff.price_water
+            sewer = tariff.price_sewer or Decimal('0.00')
         # =========================
         # DESAGÜE
         # =========================
-        sewer = tariff.price_sewer or Decimal('0.00')
+     
 
         # =========================
         # 🎯 LÓGICA SOLO PARA CHILCA
@@ -482,9 +539,11 @@ class Reading(models.Model):
         if tenant == "chilca":
 
             if billing_type == "water":
+
                 sewer = Decimal('0.00')
 
             elif billing_type == "sewer":
+
                 water = Decimal('0.00')
 
             # both = normal
@@ -513,33 +572,6 @@ class Reading(models.Model):
         )
 
         return self.total_amount
-
-    def set_billing_dates(self):
-
-        year = self.period.year
-        month = self.period.month
-
-        # Fecha de emision
-        self.date_of_issue = date(year, month, 25)
-
-        # Fecha de vencimiento (mes siguiente)
-        if month == 12:
-            self.date_of_due = date(year + 1, 1, 15)
-        else:
-            self.date_of_due = date(year, month + 1, 15)
-
-        # Fecha de corte (7 dias despues)
-        self.date_of_cute = self.date_of_due + timedelta(days=7)
-
-        # Periodo de consumo exacto
-        # Inicio: 25 del mes anterior
-        if month == 1:
-            self.period_start = date(year - 1, 12, 25)
-        else:
-            self.period_start = date(year, month - 1, 25)
-
-        # Fin: 24 del mes actual
-        self.period_end = date(year, month, 24)
 
     # -------------------------------
     # Sincronizacion con deudas
@@ -606,7 +638,6 @@ class Reading(models.Model):
     # -------------------------------
 
     def save(self, *args, skip_process=False, **kwargs):
-
 
         assignment = MeterAssignment.objects.filter(
             customer=self.customer,
