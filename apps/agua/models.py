@@ -455,24 +455,45 @@ class Reading(models.Model):
         # =====================================
         return tariff.price_sewer or Decimal('0.00')
 
-    # def calculate_fixed_until_max_tariff(self, tariff):
+    def calculate_water_total_fixed_until_max(self, tariff):
 
-    #     """
-    #     Fijo hasta máximo y luego extra por exceso
-    #     """
-    #     consumo = self.consumption or Decimal('0.000')
-    #     fijo = tariff.price_water
-    #     maximo = tariff.max_consumption or Decimal('0.000')
-    #     extra = tariff.extra_rate or Decimal('0.00')
+        """
+        Fijo hasta máximo y luego extra por exceso
+        """
+        consumo = self.consumption or Decimal('0.000')
+        fijo = tariff.price_water
+        maximo = tariff.max_consumption or Decimal('0.000')
+        extra = tariff.extra_rate or Decimal('0.00')
 
-    #     if consumo <= maximo:
+        if consumo <= maximo:
 
-    #         return fijo
+            return fijo
         
-    #     else:
+        else:
 
-    #         exceso = consumo - maximo
-    #         return fijo + (exceso * extra)
+            exceso = consumo - maximo
+            return fijo + (exceso * extra)
+
+    def calculate_sewer_total_fixed_until_max(self, tariff):
+
+        """
+        Fijo hasta máximo y luego extra por exceso
+        """
+        consumo = self.consumption or Decimal('0.000')
+        fijo = tariff.price_sewer
+        maximo = tariff.max_consumption or Decimal('0.000')
+        extra = tariff.extra_rate_sewer or Decimal('0.00')
+
+        if consumo <= maximo:
+
+            return fijo
+        
+        else:
+
+            exceso = consumo - maximo
+            return fijo + (exceso * extra)
+
+    # END CALCULO
 
     def calculate_consumption(self):
 
@@ -515,9 +536,10 @@ class Reading(models.Model):
                 water = self.calculate_water_total(tariff)
                 sewer = self.calculate_sewer_total(tariff)
 
-            # elif tariff.billing_mode == 'fixed_until_max':
+            elif tariff.billing_mode == 'fixed_until_max':
 
-            #     water = self.calculate_fixed_until_max_tariff(tariff)
+                water = self.calculate_water_total_fixed_until_max(tariff)
+                sewer = self.calculate_sewer_total_fixed_until_max(tariff)
 
             else:
 
