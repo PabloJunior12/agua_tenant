@@ -7,6 +7,7 @@ from django.utils.timezone import now
 
 class Client(TenantMixin):
 
+    
     created_at = models.DateTimeField(auto_now_add=True)
 
     # Django-tenants creará el schema automáticamente

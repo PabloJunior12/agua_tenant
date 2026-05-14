@@ -2052,9 +2052,22 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         total_sewer = customer.category.price_sewer
         total_clean = customer.category.price_clean
         
+        billing_type = (customer.billing_type or 'both')
+
+        if billing_type == "water":
+
+            total_sewer = Decimal('0.00')
+
+        elif billing_type == "sewer":
+
+            total_water = Decimal('0.00')
+
         if config.add_igv_category:
+           
            total_igv = calcular_igv_simple(total_water + total_sewer)
+
         else:
+           
            total_igv = Decimal('0.00')
 
         sub_total_amount = total_water + total_sewer + total_igv
@@ -2407,6 +2420,30 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         return Response({
             "total": total,
             "cuotas": cuotas_preview
+        })
+
+    @action(detail=True, methods=['post'])
+    def toggle_paid(self, request, pk=None):
+
+        debt = self.get_object()
+
+        # Cambiar solo paid
+        debt.paid = not debt.paid
+        debt.save(update_fields=['paid'])
+
+        # Sin recalcular nada
+        if debt.reading:
+
+            debt.reading.paid = debt.paid
+
+            debt.reading.save(
+                skip_process=True,
+                update_fields=['paid']
+            )
+
+        return Response({
+            "success": True,
+            "paid": debt.paid
         })
 
 class RefinancingInstallmentViewSet(TenantSafeMixin,viewsets.ModelViewSet):

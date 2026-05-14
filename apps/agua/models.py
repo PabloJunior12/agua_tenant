@@ -518,8 +518,6 @@ class Reading(models.Model):
         tariff = self.customer.category
         config = Config.objects.first()
 
-        tenant = connection.schema_name  # 👈 importante
-
         billing_type = (self.customer.billing_type or 'both')
 
         # Valores base
@@ -550,6 +548,7 @@ class Reading(models.Model):
 
             water = tariff.price_water
             sewer = tariff.price_sewer or Decimal('0.00')
+            
         # =========================
         # DESAGÜE
         # =========================
@@ -558,15 +557,14 @@ class Reading(models.Model):
         # =========================
         # 🎯 LÓGICA SOLO PARA CHILCA
         # =========================
-        if tenant == "chilca":
+   
+        if billing_type == "water":
 
-            if billing_type == "water":
+            sewer = Decimal('0.00')
 
-                sewer = Decimal('0.00')
+        elif billing_type == "sewer":
 
-            elif billing_type == "sewer":
-
-                water = Decimal('0.00')
+            water = Decimal('0.00')
 
             # both = normal
 
