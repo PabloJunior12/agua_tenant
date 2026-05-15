@@ -1102,7 +1102,12 @@ class WaterMeterViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         meter.status = 'installed'
         meter.save()
 
-        return Response({"ok": True})
+        serializer = WaterMeterSerializer(meter)
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED
+        )
 
     @action(detail=True, methods=['post'])
     def remove(self, request, pk=None):
@@ -1253,6 +1258,17 @@ class WaterMeterViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 {"error": str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+    @action(detail=False, methods=['get'])
+    def available(self, request):
+
+        meters = WaterMeter.objects.filter(
+            status='available'
+        ).order_by('code')
+
+        serializer = self.get_serializer(meters, many=True)
+
+        return Response(serializer.data)
 
 class MeterAssignmentViewSet(viewsets.ModelViewSet):
 

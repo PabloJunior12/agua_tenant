@@ -548,7 +548,7 @@ class Reading(models.Model):
 
             water = tariff.price_water
             sewer = tariff.price_sewer or Decimal('0.00')
-            
+
         # =========================
         # DESAGÜE
         # =========================
@@ -889,6 +889,8 @@ class Invoice(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
     created_at = models.DateTimeField(auto_now_add=True)
 
+    user_id = models.IntegerField()
+
     payment_origin = models.CharField(
         max_length=20,
         choices=PAYMENT_ORIGIN_CHOICES,
@@ -1074,9 +1076,6 @@ class Config(models.Model):
         null=True,
         verbose_name="Mercado Pago Access Token"
     )
-
-
-
 
 # class Year(models.Model):
 

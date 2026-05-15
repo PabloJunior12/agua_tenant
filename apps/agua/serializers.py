@@ -74,14 +74,6 @@ class CustomerSerializer(serializers.ModelSerializer):
 
         data['category'] = CategorySerializer(instance.category).data
 
-        if instance.has_meter and hasattr(instance, 'meter'):
-            data['meter'] = {
-                'code': instance.meter.code,
-                'installation_date': instance.meter.installation_date
-            }
-        else:
-            data['meter'] = None
-
         # calle como objeto
         if instance.calle:
             data['calle'] = CalleSerializer(instance.calle).data
@@ -415,6 +407,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Invoice
         fields = '__all__'
+        read_only_fields = ['user_id']
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -426,10 +419,16 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
 
+        request = self.context.get("request")
+        user = request.user if request else None
+
         debts_data = validated_data.pop("invoice_debts", [])
         concepts_data = validated_data.pop("invoice_concepts", [])
         payments_data = validated_data.pop("invoice_payments", [])
         installments_data = validated_data.pop("invoice_installments", [])
+
+        # asignar user_id automáticamente
+        validated_data["user_id"] = user.id
 
         # 1. Si no se envió cliente (por ser pagador externo)
         if not validated_data.get("customer"):
