@@ -9,8 +9,8 @@ from django_q.tasks import async_task
 from django_tenants.utils import schema_context
 
 from django.db import transaction, connection
-from django.db.models import Max, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery, DecimalField
-from django.db.models.functions import Coalesce
+from django.db.models import Max, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery, DecimalField, IntegerField
+from django.db.models.functions import Coalesce, Cast
 
 from rest_framework.views import APIView
 from rest_framework import filters, status, viewsets
@@ -20,6 +20,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import ValidationError
 from rest_framework.generics import ListAPIView
+
+
 
 from datetime import datetime, date, timedelta
 from weasyprint import HTML
@@ -41,9 +43,12 @@ import os
 import zipfile
 import uuid
 
-from .utils import calcular_igv_simple, obtener_calle, obtener_billing_type, get_morosos_queryset, ReadingFilter, DebtFilter, to_none_if_empty, clean_value, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
+from .utils import get_catastral_queryset, calcular_igv_simple, obtener_calle, obtener_billing_type, get_morosos_queryset, ReadingFilter, DebtFilter, to_none_if_empty, clean_value, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
 from .core.mixins import TenantSafeMixin
 import mercadopago
+
+from openpyxl import Workbook
+from openpyxl.styles import Font
 
 class CustomPagination(PageNumberPagination):
 
@@ -1270,15 +1275,26 @@ class WaterMeterViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         return Response(serializer.data)
 
-class MeterAssignmentViewSet(viewsets.ModelViewSet):
+class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
-    queryset = MeterAssignment.objects.all()
     serializer_class = MeterAssignmentSerializer
     pagination_class = CustomPagination
 
-    filter_backends = [DjangoFilterBackend,filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter
+    ]
+
     search_fields = ['meter__code']
-    filterset_fields = ['customer__state','customer__zona']  
+    
+    filterset_fields = [
+        'customer__state',
+        'customer__zona'
+    ]
+
+    def get_queryset(self):
+
+        return get_catastral_queryset()
 
 class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
@@ -1642,6 +1658,116 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             "registrados": registrados,
             "porcentaje": round(porcentaje, 2)
         })
+
+    @action(detail=False, methods=['get'])
+    def export_template(self, request):
+
+        year = int(request.GET.get("year", date.today().year))
+        assignments = get_catastral_queryset()
+        wb = Workbook()
+        ws = wb.active
+        ws.title = f"Lecturas {year}"
+
+        months = [
+            "Enero",
+            "Febrero",
+            "Marzo",
+            "Abril",
+            "Mayo",
+            "Junio",
+            "Julio",
+            "Agosto",
+            "Septiembre",
+            "Octubre",
+            "Noviembre",
+            "Diciembre",
+        ]
+
+        headers = [
+            "Código",
+            "Cliente",
+            "Medidor",
+            "Dirección",
+            "CR1",
+            "CR2",
+            "CR3",
+            "CR4",
+            "CR5",
+        ] + months
+
+        # Encabezados
+        for col_num, header in enumerate(headers, 1):
+
+            cell = ws.cell(row=1, column=col_num)
+            cell.value = header
+            cell.font = Font(bold=True)
+
+
+        row = 2
+
+        for assignment in assignments:
+
+            customer = assignment.customer
+            meter = assignment.meter
+
+            ws.cell(row=row, column=1, value=customer.codigo)
+
+            ws.cell(row=row, column=2, value=customer.full_name)
+
+            ws.cell(row=row, column=3, value=meter.code if meter else "")
+
+            ws.cell(row=row, column=4, value=customer.address)
+
+            # Columnas CR vacías
+            ws.cell(row=row, column=5, value=customer.provincia)
+            ws.cell(row=row, column=6, value=customer.distrito)
+            ws.cell(row=row, column=7, value=customer.sector)
+            ws.cell(row=row, column=8, value=customer.mz)
+            ws.cell(row=row, column=9, value=customer.lote)
+
+            # Lecturas existentes
+            readings = customer.readings.filter(
+                period__year=year
+            )
+
+            readings_map = {
+                r.period.month: r.current_reading
+                for r in readings
+            }
+
+            # Meses empiezan en columna 10
+            for month in range(1, 13):
+
+                value = readings_map.get(month, "")
+
+                ws.cell(
+                    row=row,
+                    column=month + 9,
+                    value=float(value) if value else ""
+                )
+
+            row += 1
+
+        # Ajustar tamaño columnas
+        for column_cells in ws.columns:
+
+            length = max(len(str(cell.value or "")) for cell in column_cells)
+
+            ws.column_dimensions[
+                column_cells[0].column_letter
+            ].width = length + 5
+
+        response = HttpResponse(
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
+        response[
+            'Content-Disposition'
+        ] = f'attachment; filename="lecturas_{year}.xlsx"'
+
+        wb.save(response)
+
+        return response
 
 class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 

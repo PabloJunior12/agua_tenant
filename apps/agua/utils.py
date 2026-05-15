@@ -4,11 +4,12 @@ import pandas as pd
 import uuid
 import re
 from django.db import transaction
-from django.db.models import Max, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery
+from django.db.models import Max, IntegerField, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery
 from django.utils.timezone import now, localdate
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from .models import Reading, Debt, DailyCashReport, CashBox, WaterMeter, ServiceCut, Customer, Calle
+from .models import Reading, MeterAssignment, Debt, DailyCashReport, CashBox, WaterMeter, ServiceCut, Customer, Calle
+from django.db.models.functions import Cast
 
 MESES = {
     "ENERO": 1,
@@ -367,3 +368,31 @@ def get_morosos_queryset(zona_id=None, min_months=1, state=None):
         queryset = queryset.filter(zona_id=zona_id)
 
     return queryset
+
+def get_catastral_queryset():
+
+    return (
+        MeterAssignment.objects
+        .select_related(
+            'customer',
+            'meter'
+        )
+        .filter(customer__state = 'active')
+        .annotate(
+            mz_number=Cast(
+                'customer__mz',
+                IntegerField()
+            ),
+            lote_number=Cast(
+                'customer__lote',
+                IntegerField()
+            ),
+        )
+        .order_by(
+            'customer__provincia',
+            'customer__distrito',
+            'customer__sector',
+            'mz_number',
+            'lote_number',
+        )
+    )
