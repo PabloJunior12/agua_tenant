@@ -377,7 +377,7 @@ def get_catastral_queryset():
             'customer',
             'meter'
         )
-        .filter(customer__state = 'active')
+       
         .annotate(
             mz_number=Cast(
                 'customer__mz',

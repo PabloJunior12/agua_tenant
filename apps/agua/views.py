@@ -1686,6 +1686,8 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         headers = [
             "Código",
             "Cliente",
+            "Estado",
+            "Observación",
             "Medidor",
             "Dirección",
             "CR1",
@@ -1714,18 +1716,39 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
             ws.cell(row=row, column=2, value=customer.full_name)
 
-            ws.cell(row=row, column=3, value=meter.code if meter else "")
+            # NUEVO
+            ws.cell(
+                row=row,
+                column=3,
+                value=customer.get_state_display()
+            )
 
-            ws.cell(row=row, column=4, value=customer.address)
+            # NUEVO
+            ws.cell(
+                row=row,
+                column=4,
+                value=customer.observation or ""
+            )
 
-            # Columnas CR vacías
-            ws.cell(row=row, column=5, value=customer.provincia)
-            ws.cell(row=row, column=6, value=customer.distrito)
-            ws.cell(row=row, column=7, value=customer.sector)
-            ws.cell(row=row, column=8, value=customer.mz)
-            ws.cell(row=row, column=9, value=customer.lote)
+            ws.cell(
+                row=row,
+                column=5,
+                value=meter.code if meter else ""
+            )
 
-            # Lecturas existentes
+            ws.cell(
+                row=row,
+                column=6,
+                value=customer.address
+            )
+
+            # Catastro
+            ws.cell(row=row, column=7, value=customer.provincia)
+            ws.cell(row=row, column=8, value=customer.distrito)
+            ws.cell(row=row, column=9, value=customer.sector)
+            ws.cell(row=row, column=10, value=customer.mz)
+            ws.cell(row=row, column=11, value=customer.lote)
+
             readings = customer.readings.filter(
                 period__year=year
             )
@@ -1735,14 +1758,14 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 for r in readings
             }
 
-            # Meses empiezan en columna 10
+            # Ahora los meses empiezan en columna 12
             for month in range(1, 13):
 
                 value = readings_map.get(month, "")
 
                 ws.cell(
                     row=row,
-                    column=month + 9,
+                    column=month + 11,
                     value=float(value) if value else ""
                 )
 
