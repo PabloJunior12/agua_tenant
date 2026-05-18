@@ -377,7 +377,7 @@ def get_catastral_queryset():
             'customer',
             'meter'
         )
-       
+        .filter(customer__state = 'active')
         .annotate(
             mz_number=Cast(
                 'customer__mz',
@@ -392,6 +392,48 @@ def get_catastral_queryset():
             'customer__provincia',
             'customer__distrito',
             'customer__sector',
+            'mz_number',
+            'lote_number',
+        )
+    )
+
+def get_full_catastral_queryset():
+
+    active_meter = MeterAssignment.objects.filter(
+        customer=OuterRef('pk'),
+        is_active=True
+    ).select_related('meter')
+
+    return (
+        Customer.objects
+        .select_related(
+            'category',
+            'zona'
+        )
+        .annotate(
+
+            mz_number=Cast(
+                'mz',
+                IntegerField()
+            ),
+
+            lote_number=Cast(
+                'lote',
+                IntegerField()
+            ),
+
+            meter_code=Subquery(
+                active_meter.values('meter__code')[:1]
+            ),
+
+            meter_id=Subquery(
+                active_meter.values('meter_id')[:1]
+            )
+        )
+        .order_by(
+            'provincia',
+            'distrito',
+            'sector',
             'mz_number',
             'lote_number',
         )

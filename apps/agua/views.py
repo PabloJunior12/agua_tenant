@@ -43,7 +43,7 @@ import os
 import zipfile
 import uuid
 
-from .utils import get_catastral_queryset, calcular_igv_simple, obtener_calle, obtener_billing_type, get_morosos_queryset, ReadingFilter, DebtFilter, to_none_if_empty, clean_value, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
+from .utils import get_catastral_queryset, get_full_catastral_queryset, calcular_igv_simple, obtener_calle, obtener_billing_type, get_morosos_queryset, ReadingFilter, DebtFilter, to_none_if_empty, clean_value, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
 from .core.mixins import TenantSafeMixin
 import mercadopago
 
@@ -778,7 +778,136 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         response = HttpResponse(pdf, content_type='application/pdf')
         response['Content-Disposition'] = f'inline; filename="{filename}"'
         return response
-    
+
+    @action(detail=False, methods=['get'])
+    def export_template(self, request):
+
+        year = int(request.GET.get("year", date.today().year))
+        customers = get_full_catastral_queryset()
+        wb = Workbook()
+        ws = wb.active
+        ws.title = f"PADRON GENERAL {year}"
+
+        months = [
+            "Enero",
+            "Febrero",
+            "Marzo",
+            "Abril",
+            "Mayo",
+            "Junio",
+            "Julio",
+            "Agosto",
+            "Septiembre",
+            "Octubre",
+            "Noviembre",
+            "Diciembre",
+        ]
+
+        headers = [
+            "Código",
+            "Cliente",
+            "Estado",
+            "Observación",
+            "Medidor",
+            "Dirección",
+            "CR1",
+            "CR2",
+            "CR3",
+            "CR4",
+            "CR5",
+        ] + months
+
+        # Encabezados
+        for col_num, header in enumerate(headers, 1):
+
+            cell = ws.cell(row=1, column=col_num)
+            cell.value = header
+            cell.font = Font(bold=True)
+
+
+        row = 2
+
+        for customer in customers:
+
+            ws.cell(row=row, column=1, value=customer.codigo)
+
+            ws.cell(row=row, column=2, value=customer.full_name)
+
+            ws.cell(
+                row=row,
+                column=3,
+                value=customer.get_state_display()
+            )
+
+            ws.cell(
+                row=row,
+                column=4,
+                value=customer.observation or ""
+            )
+
+            # 👇 ahora sale del annotate
+            ws.cell(
+                row=row,
+                column=5,
+                value=customer.meter_code or ""
+            )
+
+            ws.cell(
+                row=row,
+                column=6,
+                value=customer.address
+            )
+
+            # Catastro
+            ws.cell(row=row, column=7, value=customer.provincia)
+            ws.cell(row=row, column=8, value=customer.distrito)
+            ws.cell(row=row, column=9, value=customer.sector)
+            ws.cell(row=row, column=10, value=customer.mz)
+            ws.cell(row=row, column=11, value=customer.lote)
+
+            readings = customer.readings.filter(
+                period__year=year
+            )
+
+            readings_map = {
+                r.period.month: r.current_reading
+                for r in readings
+            }
+
+            # meses empiezan en columna 12
+            for month in range(1, 13):
+
+                value = readings_map.get(month, "")
+
+                ws.cell(
+                    row=row,
+                    column=month + 11,
+                    value=float(value) if value else ""
+                )
+
+            row += 1
+
+        # Ajustar tamaño columnas
+        for column_cells in ws.columns:
+
+            length = max(len(str(cell.value or "")) for cell in column_cells)
+
+            ws.column_dimensions[
+                column_cells[0].column_letter
+            ].width = length + 5
+
+        response = HttpResponse(
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
+        response[
+            'Content-Disposition'
+        ] = f'attachment; filename="lecturas_{year}.xlsx"'
+
+        wb.save(response)
+
+        return response
+
 class CashBoxViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     
     queryset = CashBox.objects.all()
@@ -1666,7 +1795,7 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         assignments = get_catastral_queryset()
         wb = Workbook()
         ws = wb.active
-        ws.title = f"Lecturas {year}"
+        ws.title = f"PADRON GENERAL OPERATIVAS {year}"
 
         months = [
             "Enero",
