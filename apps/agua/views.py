@@ -65,16 +65,46 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
     filterset_fields = ['codigo','zona','calle','state','has_meter']  
 
     ordering_fields = ['total_debt','codigo']  # 👈 habilitamos orden
-    ordering = ['-codigo']  # orden por defecto
+  
     
     def get_queryset(self):
-        return Customer.objects.annotate(
+
+        queryset = Customer.objects.annotate(
             total_debt=Coalesce(
-                Sum('debts__amount', filter=Q(debts__paid=False)),
+                Sum(
+                    'debts__amount',
+                    filter=Q(debts__paid=False)
+                ),
                 0,
-                output_field=DecimalField(max_digits=10, decimal_places=2)
+                output_field=DecimalField(
+                    max_digits=10,
+                    decimal_places=2
+                )
             )
-        )
+        ).order_by('-codigo')
+
+        # Solo para chilca
+        if self.request.tenant.schema_name == 'chilca':
+
+            queryset = queryset.annotate(
+
+                mz_number=Cast(
+                    'mz',
+                    IntegerField()
+                ),
+
+                lote_number=Cast(
+                    'lote',
+                    IntegerField()
+                ),
+
+            ).order_by(
+                'sector',
+                'mz_number',
+                'lote_number',
+            )
+
+        return queryset
 
     def create(self, request, *args, **kwargs):
 

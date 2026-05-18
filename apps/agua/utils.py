@@ -389,8 +389,6 @@ def get_catastral_queryset():
             ),
         )
         .order_by(
-            'customer__provincia',
-            'customer__distrito',
             'customer__sector',
             'mz_number',
             'lote_number',
@@ -431,8 +429,6 @@ def get_full_catastral_queryset():
             )
         )
         .order_by(
-            'provincia',
-            'distrito',
             'sector',
             'mz_number',
             'lote_number',
