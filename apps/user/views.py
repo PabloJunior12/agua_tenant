@@ -121,8 +121,8 @@ class RucApiView(APIView):
     def get(self, request, number):
 
         # Construcción del endpoint y encabezados
-        url = f"https://apifoxperu.net/api/ruc/{number}"
-        token = "LFn46Swn6FyiDG5MwGzjMAeZXxp3MLPi1P9W9njJ"
+        url = f"https://apifoxnube.com/api/ruc/{number}"
+        token = "JDuaRQyRDjiD6a6NpMXdRHoKiOfsUxksnbFRNNK0"
         headers = {"Authorization": f"Bearer {token}"}
 
         try:
@@ -150,8 +150,8 @@ class DniApiView(APIView):
     def get(self, request, number):
 
         # Construcción del endpoint y encabezados
-        url = f"https://apifoxperu.net/api/dni/{number}"
-        token = "LFn46Swn6FyiDG5MwGzjMAeZXxp3MLPi1P9W9njJ"
+        url = f"https://apifoxnube.com/api/dni/{number}"
+        token = "JDuaRQyRDjiD6a6NpMXdRHoKiOfsUxksnbFRNNK0"
         headers = {"Authorization": f"Bearer {token}"}
 
         try:

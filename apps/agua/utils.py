@@ -4,7 +4,7 @@ import pandas as pd
 import uuid
 import re
 from django.db import transaction
-from django.db.models import Max, IntegerField, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery
+from django.db.models import Max, IntegerField, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery, DecimalField
 from django.utils.timezone import now, localdate
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -369,7 +369,24 @@ def get_morosos_queryset(zona_id=None, min_months=1, state=None):
 
     return queryset
 
-def get_catastral_queryset():
+def get_catastral_queryset(period_date):
+
+    previous_reading_qs = (
+        Reading.objects
+        .filter(
+            customer=OuterRef('customer'),
+            period__lt=period_date
+        )
+        .order_by('-period')
+    )
+
+    current_period_qs = (
+        Reading.objects
+        .filter(
+            customer=OuterRef('customer'),
+            period=period_date
+        )
+    )
 
     return (
         MeterAssignment.objects
@@ -377,21 +394,56 @@ def get_catastral_queryset():
             'customer',
             'meter'
         )
-        .filter(customer__state = 'active')
+        .filter(
+            customer__state__in=['active'],
+        )
         .annotate(
+
             mz_number=Cast(
-                'customer__mz',
+                'customer__manzana__codigo',
                 IntegerField()
             ),
-            lote_number=Cast(
-                'customer__lote',
+
+            predio_number=Cast(
+                'customer__predio',
                 IntegerField()
             ),
+
+            # anterior
+            previous_reading=Subquery(
+                previous_reading_qs.values('current_reading')[:1],
+                output_field=DecimalField()
+            ),
+
+            previous_consumption=Subquery(
+                previous_reading_qs.values('consumption')[:1],
+                output_field=DecimalField()
+            ),
+
+            previous_period=Subquery(
+                previous_reading_qs.values('period')[:1]
+            ),
+
+            # actual
+            has_current_reading=Subquery(
+                current_period_qs.values('id')[:1]
+            ),
+
+            current_reading_value=Subquery(
+                current_period_qs.values('current_reading')[:1],
+                output_field=DecimalField()
+            ),
+
+            current_consumption=Subquery(
+                current_period_qs.values('consumption')[:1],
+                output_field=DecimalField()
+            ),
+
         )
         .order_by(
             'customer__sector',
             'mz_number',
-            'lote_number',
+            'predio_number'
         )
     )
 
@@ -400,23 +452,23 @@ def get_full_catastral_queryset():
     active_meter = MeterAssignment.objects.filter(
         customer=OuterRef('pk'),
         is_active=True
-    ).select_related('meter')
+    )
 
     return (
         Customer.objects
         .select_related(
             'category',
-            'zona'
+            'zona',
+            'manzana'
         )
         .annotate(
-
             mz_number=Cast(
-                'mz',
+                'manzana__codigo',
                 IntegerField()
             ),
 
-            lote_number=Cast(
-                'lote',
+            predio_number=Cast(
+                'predio',
                 IntegerField()
             ),
 
@@ -431,6 +483,6 @@ def get_full_catastral_queryset():
         .order_by(
             'sector',
             'mz_number',
-            'lote_number',
+            'predio_number',
         )
     )

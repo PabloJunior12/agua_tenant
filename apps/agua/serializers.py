@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils.timezone import now
 from django.conf import settings
-from .models import Customer, WaterMeter, ServiceCut, MeterAssignment, CutBatch, InvoiceInstallment, CashBox, Company, Config, CashOutflow, RefinancingInstallment, InvoiceConcept, CashMovement, DebtDetail, CashConcept, Reading, ReadingGeneration, Invoice, Category, Via, Calle, InvoiceDebt, Zona, Debt, InvoicePayment, DailyCashReport
+from .models import Customer, WaterMeter, Manzana, ServiceCut, MeterAssignment, CutBatch, InvoiceInstallment, CashBox, Company, Config, CashOutflow, RefinancingInstallment, InvoiceConcept, CashMovement, DebtDetail, CashConcept, Reading, ReadingGeneration, Invoice, Category, Via, Calle, InvoiceDebt, Zona, Debt, InvoicePayment, DailyCashReport
 from .utils import next_month_date, get_reading_status
 from django.db import transaction
 from django.db.models import Sum
@@ -19,6 +19,15 @@ class ZonaSerializer(serializers.ModelSerializer):
     class Meta:
 
         model = Zona
+        fields = '__all__'
+
+class ManzanaSerializer(serializers.ModelSerializer):
+
+    zona = ZonaSerializer(read_only=True)
+
+    class Meta:
+
+        model = Manzana
         fields = '__all__'
 
 class CalleSerializer(serializers.ModelSerializer):
@@ -86,6 +95,11 @@ class CustomerSerializer(serializers.ModelSerializer):
         else:
             data['zona'] = None
 
+        if instance.manzana:
+            data['manzana'] = ManzanaSerializer(instance.manzana).data
+        else:
+            data['manzana'] = None
+
         return data
     
     def get_current_meter(self, obj):
@@ -126,6 +140,7 @@ class CustomerWithDebtsSerializer(serializers.ModelSerializer):
 class CustomerWaterMeterSerializer(serializers.ModelSerializer):
 
     zona = ZonaSerializer()
+    manzana = ManzanaSerializer()
 
     class Meta:
 
@@ -160,9 +175,59 @@ class MeterAssignmentSerializer(serializers.ModelSerializer):
     customer = CustomerWaterMeterSerializer()
     meter = WaterMeterSerializer()
 
+    previous_reading = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        read_only=True
+    )
+
+    previous_consumption = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        read_only=True
+    )
+
+    previous_period = serializers.DateField(
+        read_only=True
+    )
+
+    has_current_reading = serializers.IntegerField(
+        read_only=True
+    )
+
+    current_reading_value = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        read_only=True
+    )
+
+    current_consumption = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        read_only=True
+    )
+
     class Meta:
         model = MeterAssignment
-        fields = '__all__'
+
+        fields = [
+            'id',
+
+            'customer',
+            'meter',
+
+            'installation_date',
+            'removal_date',
+            'is_active',
+
+            # annotations
+            'previous_reading',
+            'previous_consumption',
+            'previous_period',
+            'has_current_reading',
+            'current_reading_value',
+            'current_consumption',
+        ]
 
 class CashBoxSerializer(serializers.ModelSerializer):
 

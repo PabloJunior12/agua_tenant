@@ -47,6 +47,27 @@ class Zona(models.Model):
 
         return self.name
 
+class Manzana(models.Model):
+
+    zona = models.ForeignKey(
+        Zona,
+        on_delete=models.CASCADE,
+        related_name='manzanas'
+    )
+
+    codigo = models.CharField(
+        max_length=10,
+        verbose_name='Código'
+    )
+
+    class Meta:
+        verbose_name = 'Manzana'
+        verbose_name_plural = 'Manzanas'
+        unique_together = ('zona', 'codigo')
+
+    def __str__(self):
+        return f"{self.zona.codigo} - {self.codigo}"
+
 class Via(models.Model):
 
     codigo = models.CharField(max_length=2, unique=True, editable=False)
@@ -267,12 +288,30 @@ class Customer(models.Model):
     has_meter = models.BooleanField(default=True)
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="customers")
     calle = models.ForeignKey(Calle, on_delete=models.PROTECT, null=True)
-    zona = models.ForeignKey(Zona, on_delete=models.PROTECT, null=True, related_name="customers")
+    
+    zona = models.ForeignKey(
+        Zona,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='customers'
+    )
+
+    manzana = models.ForeignKey(
+        Manzana,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='customers'
+    )
 
     provincia = models.CharField(max_length=15, blank=True, null=True)
     distrito = models.CharField(max_length=15, blank=True, null=True)
+
     sector = models.CharField(max_length=15, blank=True, null=True)
     mz = models.CharField(max_length=15, blank=True, null=True)
+    predio = models.CharField(max_length=15, blank=True, null=True)
+
     lote = models.CharField(max_length=15, blank=True, null=True)
     nro = models.CharField(max_length=15, blank=True, null=True)
 

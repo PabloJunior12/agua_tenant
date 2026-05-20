@@ -22,18 +22,17 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.generics import ListAPIView
 
 
-
 from datetime import datetime, date, timedelta
 from weasyprint import HTML
 from collections import defaultdict
 from babel.dates import format_date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from apps.tenant.utils.seed import generate_ticket
 from apps.tenant.models import Pay, ReceiptBatch
 from apps.user.models import User
-from .models import Customer, MeterAssignment, ServiceCut, Config, CutBatch, DailyCashReport, DebtRefinancing, DebtRefinancingDetail, RefinancingInstallment, WaterMeter, CashOutflow, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
+from .models import Customer, Manzana, CashMovement, Manzana, MeterAssignment, ServiceCut, Config, CutBatch, DailyCashReport, DebtRefinancing, DebtRefinancingDetail, RefinancingInstallment, WaterMeter, CashOutflow, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
 from .serializers import (
-    CustomerSerializer, ServiceCutSerializer, MeterAssignmentSerializer, MorosidadSerializer, CutBatchSerializer, WaterMeterSerializer, RefinancingInstallmentSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
+    CustomerSerializer, ServiceCutSerializer, ManzanaSerializer, MeterAssignmentSerializer, MorosidadSerializer, CutBatchSerializer, WaterMeterSerializer, RefinancingInstallmentSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
     ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ConfigSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer)
 from apps.agua.core.permissions import GlobalPermissionMixin, TenantPaymentCreatePermission
 from pathlib import Path
@@ -48,13 +47,93 @@ from .core.mixins import TenantSafeMixin
 import mercadopago
 
 from openpyxl import Workbook
-from openpyxl.styles import Font
+from openpyxl.styles import Font, PatternFill
 
 class CustomPagination(PageNumberPagination):
 
     page_size = 5  # Número de registros por página
     page_size_query_param = 'page_size'  # Permite cambiar el tamaño desde la URL
     max_page_size = 100  # Tamaño máximo permitido
+
+class ZonaViewSet(TenantSafeMixin,viewsets.ModelViewSet):
+
+    queryset = Zona.objects.all().order_by('id')
+    serializer_class = ZonaSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['codigo','name']
+
+    @action(detail=False, methods=['post'])
+    def importar_manzanas(self, request):
+
+        archivo = request.FILES.get('file')
+
+        if not archivo:
+            return Response(
+                {'error': 'Debe subir un archivo Excel'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+
+            df = pd.read_excel(archivo)
+
+            # convertir a numérico
+            df['cr3_num'] = pd.to_numeric(df['cr3'], errors='coerce')
+            df['cr4_num'] = pd.to_numeric(df['cr4'], errors='coerce')
+
+            # ordenar primero por zona luego por manzana
+            df = df.sort_values(
+                by=['cr3_num', 'cr4_num'],
+                ascending=[True, True]
+            )
+
+            total = 0
+
+            for _, row in df.iterrows():
+
+                zona_codigo = clean_value(row['cr3'])
+                manzana_codigo = clean_value(row['cr4'])
+
+                try:
+                    zona = Zona.objects.get(codigo=zona_codigo)
+
+                    _, created = Manzana.objects.get_or_create(
+                        zona=zona,
+                        codigo=manzana_codigo
+                    )
+
+                    if created:
+                        total += 1
+
+                except Zona.DoesNotExist:
+                    continue
+
+            return Response({
+                'message': 'Importación completada',
+                'manzanas_creadas': total
+            })
+
+        except Exception as e:
+
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class ManzanaViewSet(TenantSafeMixin,viewsets.ModelViewSet):
+
+    queryset = Manzana.objects.all().order_by('id')
+    serializer_class = ManzanaSerializer
+    pagination_class = CustomPagination
+
+    @action(detail=False, methods=['get'])
+    def por_zona(self, request):
+
+        zona_id = request.query_params.get('zona')
+
+        queryset = Manzana.objects.filter(zona_id=zona_id).values('id', 'codigo')
+
+        return Response(queryset)
 
 class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelViewSet):
   
@@ -66,7 +145,6 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
 
     ordering_fields = ['total_debt','codigo']  # 👈 habilitamos orden
   
-    
     def get_queryset(self):
 
         queryset = Customer.objects.annotate(
@@ -89,19 +167,19 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             queryset = queryset.annotate(
 
                 mz_number=Cast(
-                    'mz',
+                    'manzana__codigo',
                     IntegerField()
                 ),
 
-                lote_number=Cast(
-                    'lote',
+                predio_number=Cast(
+                    'predio',
                     IntegerField()
                 ),
 
             ).order_by(
                 'sector',
                 'mz_number',
-                'lote_number',
+                'predio_number',
             )
 
         return queryset
@@ -109,9 +187,6 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
     def create(self, request, *args, **kwargs):
 
         data = request.data
-        has_meter = data.get('has_meter', True)
-        meter_data = data.get('meter', None)
-
         tenant = request.tenant.schema_name
 
         code_number = 10
@@ -128,19 +203,6 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
            next_code_fixed = "00000001"
         
         try:
-
-            # if has_meter:
-
-            #     if not meter_data:
-            #         return Response(
-            #             {'error': 'Este campo es obligatorio cuando el cliente tiene medidor.'},
-            #             status=status.HTTP_400_BAD_REQUEST
-            #         )
-            #     if WaterMeter.objects.filter(code=meter_data.get('code')).exists():
-            #         return Response(
-            #             {'error': 'Este codigo de medidor ya existe.'},
-            #             status=status.HTTP_400_BAD_REQUEST
-            #         )
 
             with transaction.atomic():
                 # Obtener último código y sumar 1
@@ -161,13 +223,6 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                 customer_serializer = CustomerSerializer(data=data)
                 customer_serializer.is_valid(raise_exception=True)
                 customer = customer_serializer.save()
-
-                # if has_meter:
-                #     WaterMeter.objects.create(
-                #         customer=customer,
-                #         code=meter_data['code'],
-                #         installation_date=meter_data['installation_date']
-                #     )
 
                 return Response(CustomerSerializer(customer).data, status=status.HTTP_201_CREATED)
 
@@ -714,6 +769,96 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             "readings_created": created
         }, status=status.HTTP_201_CREATED)
 
+    @action(detail=False, methods=['post'])
+    def importar_catastro(self, request):
+
+        archivo = request.FILES.get('file')
+
+        if not archivo:
+            return Response(
+                {'error': 'Debe subir un Excel'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+
+            df = pd.read_excel(archivo)
+
+            actualizados = 0
+            manzanas_creadas = 0
+            errores = []
+
+            with transaction.atomic():
+
+                for index, row in df.iterrows():
+
+                    try:
+
+                        # EXCEL
+                        supply_number = clean_value(row['SUMINISTRO'])
+                        # print(supply_number)
+                        zona_codigo = clean_value(row['cr3'])
+                        manzana_codigo = clean_value(row['cr4'])
+                        predio_codigo = clean_value(row['cr5'])
+
+                        # ZONA
+                        zona = Zona.objects.filter(
+                            codigo=zona_codigo
+                        ).first()
+                    
+                        # MANZANA
+                        manzana = Manzana.objects.filter(
+                            zona=zona,
+                            codigo=manzana_codigo
+                        ).first()
+
+                        # CLIENTE
+                        customer = Customer.objects.filter(
+                            codigo=supply_number
+                        ).first()
+
+                        if not customer:
+                            errores.append(
+                                f"Fila {index + 2}: Cliente {supply_number} no existe"
+                            )
+                            continue
+
+                        # ACTUALIZAR
+                        customer.zona = zona
+                        customer.manzana = manzana
+
+                        # legacy
+                        customer.sector = zona.codigo
+                       
+                        customer.predio = predio_codigo
+
+                        customer.mz = None
+                        customer.lote = None
+
+                        customer.save()
+
+                        actualizados += 1
+
+                    except Exception as e:
+
+                        errores.append(
+                            f"Fila {index + 2}: {str(e)}"
+                        )
+
+            return Response({
+                'message': 'Importación completada',
+                'clientes_actualizados': actualizados,
+                'manzanas_creadas': manzanas_creadas,
+                'errores': errores[:20]
+            })
+
+        except Exception as e:
+
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_BAD_REQUEST
+            )
+
     @action(detail=False, methods=["get"], url_path='report/debt')
     def report(self,request):
 
@@ -892,8 +1037,8 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             ws.cell(row=row, column=7, value=customer.provincia)
             ws.cell(row=row, column=8, value=customer.distrito)
             ws.cell(row=row, column=9, value=customer.sector)
-            ws.cell(row=row, column=10, value=customer.mz)
-            ws.cell(row=row, column=11, value=customer.lote)
+            ws.cell(row=row, column=10, value=customer.manzana.codigo if customer.manzana else '')
+            ws.cell(row=row, column=11, value=customer.predio)
 
             readings = customer.readings.filter(
                 period__year=year
@@ -1448,12 +1593,531 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
     
     filterset_fields = [
         'customer__state',
-        'customer__zona'
+        'customer__zona',
+        'customer__manzana'
     ]
 
     def get_queryset(self):
 
-        return get_catastral_queryset()
+        month = self.request.query_params.get('month')
+
+        if not month:
+            return MeterAssignment.objects.none()
+
+        year, month = map(int, month.split('-'))
+
+        period_date = date(year, month, 1)
+
+        return get_catastral_queryset(period_date)
+
+    @action(detail=False, methods=['get'])
+    def export_template(self, request):
+
+        month = request.query_params.get('month')
+
+        if not month:
+            return HttpResponse(
+                'Debe enviar el parámetro month',
+                status=400
+            )
+
+        year, month_number = map(int, month.split('-'))
+
+        period_date = date(year, month_number, 1)
+
+        assignments = get_catastral_queryset(period_date)
+
+        wb = Workbook()
+
+        ws = wb.active
+
+        ws.title = f"LECTURAS {month}"
+
+        months = [
+            "Enero",
+            "Febrero",
+            "Marzo",
+            "Abril",
+            "Mayo",
+            "Junio",
+            "Julio",
+            "Agosto",
+            "Septiembre",
+            "Octubre",
+            "Noviembre",
+            "Diciembre",
+        ]
+
+        current_month_name = months[month_number - 1]
+
+        headers = [
+
+            "Código",
+            "Cliente",
+            "Estado",
+            "Observación",
+            "Medidor",
+            "Dirección",
+
+            # Catastro
+            "CR1",
+            "CR2",
+            "CR3",
+            "CR4",
+            "CR5",
+
+            # Lectura anterior
+            "Última lectura",
+            "Último periodo",
+
+            # Lectura actual
+            f"Lectura {current_month_name} {year}",
+
+        ]
+
+        # =========================
+        # ESTILOS
+        # =========================
+
+        green_fill = PatternFill(
+            start_color="C6EFCE",
+            end_color="C6EFCE",
+            fill_type="solid"
+        )
+
+        yellow_fill = PatternFill(
+            start_color="FFF3CD",
+            end_color="FFF3CD",
+            fill_type="solid"
+        )
+
+        # =========================
+        # HEADERS
+        # =========================
+
+        for col_num, header in enumerate(headers, 1):
+
+            cell = ws.cell(row=1, column=col_num)
+
+            cell.value = header
+
+            cell.font = Font(bold=True)
+
+        # =========================
+        # DATA
+        # =========================
+
+        row = 2
+
+        for assignment in assignments:
+
+            customer = assignment.customer
+
+            meter = assignment.meter
+
+            # Código
+            ws.cell(
+                row=row,
+                column=1,
+                value=customer.codigo
+            )
+
+            # Cliente
+            ws.cell(
+                row=row,
+                column=2,
+                value=customer.full_name
+            )
+
+            # Estado
+            ws.cell(
+                row=row,
+                column=3,
+                value=customer.get_state_display()
+            )
+
+            # Observación
+            ws.cell(
+                row=row,
+                column=4,
+                value=customer.observation or ""
+            )
+
+            # Medidor
+            ws.cell(
+                row=row,
+                column=5,
+                value=meter.code if meter else ""
+            )
+
+            # Dirección
+            ws.cell(
+                row=row,
+                column=6,
+                value=customer.address
+            )
+
+            # =========================
+            # CATASTRO
+            # =========================
+
+            ws.cell(
+                row=row,
+                column=7,
+                value=customer.provincia
+            )
+
+            ws.cell(
+                row=row,
+                column=8,
+                value=customer.distrito
+            )
+
+            ws.cell(
+                row=row,
+                column=9,
+                value=customer.sector
+            )
+
+            ws.cell(
+                row=row,
+                column=10,
+                value=(
+                    customer.manzana.codigo
+                    if customer.manzana
+                    else customer.mz or ""
+                )
+            )
+
+            ws.cell(
+                row=row,
+                column=11,
+                value=customer.predio
+            )
+
+            # =========================
+            # LECTURA ANTERIOR
+            # =========================
+
+            ws.cell(
+                row=row,
+                column=12,
+                value=(
+                    float(assignment.previous_reading)
+                    if assignment.previous_reading is not None
+                    else ""
+                )
+            )
+
+            ws.cell(
+                row=row,
+                column=13,
+                value=(
+                    assignment.previous_period.strftime('%Y-%m')
+                    if assignment.previous_period
+                    else ""
+                )
+            )
+
+            # =========================
+            # LECTURA ACTUAL
+            # =========================
+
+            current_cell = ws.cell(
+                row=row,
+                column=14,
+                value=(
+                    float(assignment.current_reading_value)
+                    if getattr(
+                        assignment,
+                        'current_reading_value',
+                        None
+                    ) is not None
+                    else ""
+                )
+            )
+
+            # Ya registrado
+            if assignment.has_current_reading:
+
+                current_cell.fill = green_fill
+
+            # Sin lectura anterior
+            elif not assignment.previous_reading:
+
+                current_cell.fill = yellow_fill
+
+            row += 1
+
+        # =========================
+        # AUTO WIDTH
+        # =========================
+
+        for column_cells in ws.columns:
+
+            length = max(
+                len(str(cell.value or ""))
+                for cell in column_cells
+            )
+
+            ws.column_dimensions[
+                column_cells[0].column_letter
+            ].width = length + 5
+
+        # =========================
+        # RESPONSE
+        # =========================
+
+        response = HttpResponse(
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
+        response[
+            'Content-Disposition'
+        ] = (
+            f'attachment; '
+            f'filename="lecturas_{month}.xlsx"'
+        )
+
+        wb.save(response)
+
+        return response
+
+    @action(detail=False, methods=['get'])
+    def export_history(self, request):
+
+        year = request.query_params.get( 'year',datetime.now().year)
+
+        if not year:
+            return HttpResponse(
+                'Debe enviar el parámetro year',
+                status=400
+            )
+
+        year = int(year)
+
+        assignments = (
+            MeterAssignment.objects
+            .select_related(
+                'customer',
+                'meter'
+            )
+            .filter(
+                customer__state='active'
+            )
+            .order_by(
+                'customer__sector',
+                'customer__manzana__codigo',
+                'customer__predio'
+            )
+        )
+
+        wb = Workbook()
+
+        ws = wb.active
+
+        ws.title = f"HISTORIAL {year}"
+
+        months = [
+            "Enero",
+            "Febrero",
+            "Marzo",
+            "Abril",
+            "Mayo",
+            "Junio",
+            "Julio",
+            "Agosto",
+            "Septiembre",
+            "Octubre",
+            "Noviembre",
+            "Diciembre",
+        ]
+
+        headers = [
+
+            "Código",
+            "Cliente",
+            "Estado",
+            "Observación",
+            "Medidor",
+            "Dirección",
+
+            # Catastro
+            "CR1",
+            "CR2",
+            "CR3",
+            "CR4",
+            "CR5",
+
+        ] + months
+
+        # =========================
+        # HEADERS
+        # =========================
+
+        for col_num, header in enumerate(headers, 1):
+
+            cell = ws.cell(row=1, column=col_num)
+
+            cell.value = header
+
+            cell.font = Font(bold=True)
+
+        # =========================
+        # DATA
+        # =========================
+
+        row = 2
+
+        for assignment in assignments:
+
+            customer = assignment.customer
+
+            meter = assignment.meter
+
+            # Código
+            ws.cell(
+                row=row,
+                column=1,
+                value=customer.codigo
+            )
+
+            # Cliente
+            ws.cell(
+                row=row,
+                column=2,
+                value=customer.full_name
+            )
+
+            # Estado
+            ws.cell(
+                row=row,
+                column=3,
+                value=customer.get_state_display()
+            )
+
+            # Observación
+            ws.cell(
+                row=row,
+                column=4,
+                value=customer.observation or ""
+            )
+
+            # Medidor
+            ws.cell(
+                row=row,
+                column=5,
+                value=meter.code if meter else ""
+            )
+
+            # Dirección
+            ws.cell(
+                row=row,
+                column=6,
+                value=customer.address
+            )
+
+            # =========================
+            # CATASTRO
+            # =========================
+
+            ws.cell(
+                row=row,
+                column=7,
+                value=customer.provincia
+            )
+
+            ws.cell(
+                row=row,
+                column=8,
+                value=customer.distrito
+            )
+
+            ws.cell(
+                row=row,
+                column=9,
+                value=customer.sector
+            )
+
+            ws.cell(
+                row=row,
+                column=10,
+                value=(
+                    customer.manzana.codigo
+                    if customer.manzana
+                    else customer.mz or ""
+                )
+            )
+
+            ws.cell(
+                row=row,
+                column=11,
+                value=customer.predio
+            )
+
+            # =========================
+            # LECTURAS DEL AÑO
+            # =========================
+
+            readings = customer.readings.filter(
+                period__year=year
+            )
+
+            readings_map = {
+                r.period.month: r.current_reading
+                for r in readings
+            }
+
+            # Enero -> Diciembre
+            for month_number in range(1, 13):
+
+                value = readings_map.get(month_number)
+
+                ws.cell(
+                    row=row,
+                    column=month_number + 11,
+                    value=(
+                        float(value)
+                        if value is not None
+                        else ""
+                    )
+                )
+
+            row += 1
+
+        # =========================
+        # AUTO WIDTH
+        # =========================
+
+        for column_cells in ws.columns:
+
+            length = max(
+                len(str(cell.value or ""))
+                for cell in column_cells
+            )
+
+            ws.column_dimensions[
+                column_cells[0].column_letter
+            ].width = length + 5
+
+        # =========================
+        # RESPONSE
+        # =========================
+
+        response = HttpResponse(
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
+        response[
+            'Content-Disposition'
+        ] = (
+            f'attachment; '
+            f'filename="historial_lecturas_{year}.xlsx"'
+        )
+
+        wb.save(response)
+
+        return response
 
 class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
@@ -1817,139 +2481,6 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             "registrados": registrados,
             "porcentaje": round(porcentaje, 2)
         })
-
-    @action(detail=False, methods=['get'])
-    def export_template(self, request):
-
-        year = int(request.GET.get("year", date.today().year))
-        assignments = get_catastral_queryset()
-        wb = Workbook()
-        ws = wb.active
-        ws.title = f"PADRON GENERAL OPERATIVAS {year}"
-
-        months = [
-            "Enero",
-            "Febrero",
-            "Marzo",
-            "Abril",
-            "Mayo",
-            "Junio",
-            "Julio",
-            "Agosto",
-            "Septiembre",
-            "Octubre",
-            "Noviembre",
-            "Diciembre",
-        ]
-
-        headers = [
-            "Código",
-            "Cliente",
-            "Estado",
-            "Observación",
-            "Medidor",
-            "Dirección",
-            "CR1",
-            "CR2",
-            "CR3",
-            "CR4",
-            "CR5",
-        ] + months
-
-        # Encabezados
-        for col_num, header in enumerate(headers, 1):
-
-            cell = ws.cell(row=1, column=col_num)
-            cell.value = header
-            cell.font = Font(bold=True)
-
-
-        row = 2
-
-        for assignment in assignments:
-
-            customer = assignment.customer
-            meter = assignment.meter
-
-            ws.cell(row=row, column=1, value=customer.codigo)
-
-            ws.cell(row=row, column=2, value=customer.full_name)
-
-            # NUEVO
-            ws.cell(
-                row=row,
-                column=3,
-                value=customer.get_state_display()
-            )
-
-            # NUEVO
-            ws.cell(
-                row=row,
-                column=4,
-                value=customer.observation or ""
-            )
-
-            ws.cell(
-                row=row,
-                column=5,
-                value=meter.code if meter else ""
-            )
-
-            ws.cell(
-                row=row,
-                column=6,
-                value=customer.address
-            )
-
-            # Catastro
-            ws.cell(row=row, column=7, value=customer.provincia)
-            ws.cell(row=row, column=8, value=customer.distrito)
-            ws.cell(row=row, column=9, value=customer.sector)
-            ws.cell(row=row, column=10, value=customer.mz)
-            ws.cell(row=row, column=11, value=customer.lote)
-
-            readings = customer.readings.filter(
-                period__year=year
-            )
-
-            readings_map = {
-                r.period.month: r.current_reading
-                for r in readings
-            }
-
-            # Ahora los meses empiezan en columna 12
-            for month in range(1, 13):
-
-                value = readings_map.get(month, "")
-
-                ws.cell(
-                    row=row,
-                    column=month + 11,
-                    value=float(value) if value else ""
-                )
-
-            row += 1
-
-        # Ajustar tamaño columnas
-        for column_cells in ws.columns:
-
-            length = max(len(str(cell.value or "")) for cell in column_cells)
-
-            ws.column_dimensions[
-                column_cells[0].column_letter
-            ].width = length + 5
-
-        response = HttpResponse(
-            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-
-        response[
-            'Content-Disposition'
-        ] = f'attachment; filename="lecturas_{year}.xlsx"'
-
-        wb.save(response)
-
-        return response
 
 class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
@@ -2855,6 +3386,303 @@ class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
         invoice.cancel()
         return Response({"message": "Factura anulada"}, status=status.HTTP_200_OK)
 
+    @transaction.atomic
+    @action(detail=False, methods=['post'])
+    def import_excel_payments(self, request):
+
+        file = request.FILES.get("file")
+
+        if not file:
+
+            return Response(
+                {"detail": "Debe subir un archivo Excel."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+
+            df = pd.read_excel(file)
+
+        except Exception as e:
+
+            return Response(
+                {"detail": f"Error leyendo Excel: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ==========================================
+        # MAPEO DE COLUMNAS
+        # ==========================================
+
+        MONTH_COLUMNS = {
+            1: ("ENERO - AGUA", "ENERO - DESAGUE"),
+            2: ("FEBRERO - AGUA", "FEBRERO - DESAGUE"),
+            3: ("MARZO - AGUA", "MARZO - DESAGUE"),
+            4: ("ABRIL - AGUA", "ABRIL - DESAGUE"),
+            5: ("MAYO - AGUA", "MAYO - DESAGUE"),
+            6: ("JUNIO - AGUA", "JUNIO - DESAGUE"),
+            7: ("JULIO - AGUA", "JULIO - DESAGUE"),
+            8: ("AGOSTO - AGUA", "AGOSTO - DESAGUE"),
+            9: ("SETIEMBRE - AGUA", "SETIEMBRE - DESAGUE"),
+            10: ("OCTUBRE - AGUA", "OCTUBRE - DESAGUE"),
+            11: ("NOVIEMBRE - AGUA", "NOVIEMBRE - DESAGUE"),
+            12: ("DICIEMBRE - AGUA", "DICIEMBRE - DESAGUE"),
+        }
+
+        YEAR = 2026
+
+        created = 0
+        ignored = 0
+        errors = []
+
+        # ==========================================
+        # CAJA ABIERTA
+        # ==========================================
+
+        cashbox = CashBox.objects.filter(
+            status="open"
+        ).first()
+
+        if not cashbox:
+
+            return Response(
+                {"detail": "No existe caja abierta."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ==========================================
+        # CONCEPTO
+        # ==========================================
+
+        concept = CashConcept.objects.filter(
+            system_key="price_water"
+        ).first()
+
+        if not concept:
+
+            return Response(
+                {"detail": "No existe concepto de caja."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ==========================================
+        # RECORRER FILAS
+        # ==========================================
+
+        for index, row in df.iterrows():
+
+            try:
+
+                excel_date = row.get("FECHA")
+                payment_date = pd.to_datetime(excel_date)
+            
+                codigo = clean_value(row.get("CODIGO", ""))
+            
+                if not codigo:
+                    continue
+
+                customer = Customer.objects.filter(codigo=codigo).first()
+
+                if not customer:
+
+                    errors.append({
+                        "fila": index + 2,
+                        "codigo": codigo,
+                        "error": "Cliente no encontrado"
+                    })
+
+                    continue
+                
+                # ==========================================
+                # RECORRER MESES
+                # ==========================================
+
+                for month, cols in MONTH_COLUMNS.items():
+
+                    col_agua, col_desague = cols
+
+                    try:
+
+                        agua = Decimal(
+                            str(row.get(col_agua, 0) or 0)
+                        )
+
+                    except (InvalidOperation, TypeError):
+
+                        agua = Decimal("0")
+
+                    try:
+
+                        desague = Decimal(
+                            str(row.get(col_desague, 0) or 0)
+                        )
+
+                    except (InvalidOperation, TypeError):
+
+                        desague = Decimal("0")
+
+                    # ==========================================
+                    # SI NO TIENE MONTO -> IGNORAR
+                    # ==========================================
+
+                    if agua <= 0 and desague <= 0:
+                        continue
+
+                    period = date(YEAR, month, 1)
+
+                    # ==========================================
+                    # REGLA IMPORTANTE
+                    # ==========================================
+                    # Si tiene deuda más antigua pendiente
+                    # NO permitir pagar meses posteriores
+                    #
+                    # Ejemplo:
+                    # Tiene deuda febrero
+                    # Pero Excel marca mayo
+                    # => IGNORAR MAYO
+                    # ==========================================
+
+                    oldest_pending = Debt.objects.filter(
+                        customer=customer,
+                        paid=False,
+                        is_refinanced=False
+                    ).order_by("period").first()
+
+                    if not oldest_pending:
+                        continue
+
+                    if oldest_pending.period != period:
+
+                        ignored += 1
+
+                        errors.append({
+                            "fila": index + 2,
+                            "codigo": codigo,
+                            "mes_excel": period.strftime("%Y-%m"),
+                            "deuda_pendiente": oldest_pending.period.strftime("%Y-%m"),
+                            "error": (
+                                "Tiene una deuda más antigua pendiente. "
+                                "Pago ignorado."
+                            )
+                        })
+
+                        continue
+
+                    # ==========================================
+                    # BUSCAR DEUDA
+                    # ==========================================
+
+                    debt = Debt.objects.filter(
+                        customer=customer,
+                        period=period,
+                        paid=False,
+                        is_refinanced=False
+                    ).first()
+
+                    if not debt:
+
+                        ignored += 1
+
+                        continue
+
+                    # ==========================================
+                    # EVITAR DUPLICADOS
+                    # ==========================================
+
+                    if debt.invoice_links.exists():
+
+                        ignored += 1
+
+                        continue
+
+                    # ==========================================
+                    # CREAR FACTURA
+                    # ==========================================
+
+                    invoice = Invoice.objects.create(
+                        customer=customer,
+                        total=debt.amount,
+                        user_id=request.user.id,
+                        notes="Importado desde Excel",
+                        payment_origin="counter",
+                        reference="debt",
+                        date=payment_date,
+                        created_at=payment_date
+                    )
+
+                    # ==========================================
+                    # RELACION FACTURA - DEUDA
+                    # ==========================================
+
+                    InvoiceDebt.objects.create(
+                        invoice=invoice,
+                        debt=debt,
+                        total=debt.amount
+                    )
+
+                    # ==========================================
+                    # PAGO
+                    # ==========================================
+
+                    invoice_payment = InvoicePayment.objects.create(
+                        invoice=invoice,
+                        cashbox=cashbox,
+                        method="cash",
+                        total=debt.amount,
+                        reference="IMPORTACION EXCEL",
+                        created_at=payment_date
+                    )
+
+                    # ==========================================
+                    # MARCAR DEUDA PAGADA
+                    # ==========================================
+
+                    debt.paid = True
+                    debt.save(update_fields=["paid"])
+
+                    # ==========================================
+                    # MARCAR LECTURA PAGADA
+                    # ==========================================
+
+                    if debt.reading:
+
+                        debt.reading.paid = True
+                        debt.reading.save(
+                            skip_process=True,
+                            update_fields=["paid"]
+                        )
+
+                    # ==========================================
+                    # MOVIMIENTO DE CAJA
+                    # ==========================================
+
+                    CashMovement.objects.create(
+                        cashbox=cashbox,
+                        concept=concept,
+                        method="cash",
+                        total=debt.amount,
+                        reference=f"IMPORT EXCEL {invoice.code}",
+                        invoice_payment=invoice_payment,
+                        created_at=payment_date
+                    )
+
+                    created += 1
+
+            except Exception as e:
+
+                errors.append({
+                    "fila": index + 2,
+                    "codigo": row.get("CODIGO"),
+                    "error": str(e)
+                })
+
+        return Response({
+            "success": True,
+            "facturas_creadas": created,
+            "ignorados": ignored,
+            "errores": errors
+        })
+
 class CashConceptViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
     queryset = CashConcept.objects.all().order_by('id')
@@ -3013,13 +3841,6 @@ class CalleViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     serializer_class = CalleSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['via']  # permite filtrar por tipo_via id
-    search_fields = ['codigo','name']
-
-class ZonaViewSet(TenantSafeMixin,viewsets.ModelViewSet):
-
-    queryset = Zona.objects.all().order_by('id')
-    serializer_class = ZonaSerializer
-    filter_backends = [filters.SearchFilter]
     search_fields = ['codigo','name']
 
 class CompanyViewSet(TenantSafeMixin,viewsets.ModelViewSet):
