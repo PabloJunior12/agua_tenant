@@ -1,0 +1,732 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <style>
+        @page {
+            size: A4;
+            margin: 30px;
+        }
+
+        body {
+
+            font-family: Georgia, serif;
+
+            font-size: 12px;
+
+            color: #222;
+
+            margin-top: 90px;
+
+        }
+
+        .title {
+
+            text-align: center;
+
+            font-size: 16px;
+
+            font-weight: bold;
+
+            letter-spacing: 1px;
+
+            text-transform: uppercase;
+
+            margin-top: 20px;
+
+            margin-bottom: 35px;
+
+            border-bottom: 2px solid #000;
+
+            padding-bottom: 10px;
+
+        }
+
+        .section-title {
+
+            font-size: 14px;
+
+            font-weight: bold;
+
+            text-transform: uppercase;
+
+            border-bottom: 1px solid #000;
+
+            margin-bottom: 13px;
+
+            padding-bottom: 5px;
+
+        }
+
+        .text {
+
+            text-align: justify;
+
+            line-height: 1.8;
+
+            font-size: 14px;
+
+        }
+
+        .signature {
+
+            margin-top: 150px;
+
+            text-align: center;
+
+        }
+
+        .page-break {
+
+            page-break-before: always;
+
+        }
+
+        table {
+
+            width: 100%;
+
+            border-collapse: collapse;
+
+            margin-top: 10px;
+
+        }
+
+        th,
+        td {
+
+            border: 1px solid #444;
+
+            padding: 4px;
+
+            font-size: 11px;
+
+        }
+
+        .text-end {
+
+            text-align: right;
+
+        }
+
+        .header {
+
+            position: fixed;
+
+            top: -5px;
+
+            left: 0;
+
+            right: 0;
+
+            height: 70px;
+
+        }
+
+        .logo-left {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 200px;
+        }
+
+        .logo-right {
+
+            position: absolute;
+
+            right: 0;
+
+            top: 5px;
+
+            text-align: center;
+
+            width: 170px;
+
+        }
+
+        .water-drop {
+
+            width: 42px;
+
+            height: 42px;
+
+            background: #0d47a1;
+
+            margin: auto;
+
+            border-radius: 50% 50% 50% 0;
+
+            transform: rotate(-45deg);
+
+        }
+
+        .water-text {
+
+            margin-top: 8px;
+
+            font-size: 13px;
+
+            font-weight: bold;
+
+            color: #111;
+
+            line-height: 1.3;
+
+            text-transform: uppercase;
+
+        }
+
+        .agreement-text {
+
+            margin-top: 30px;
+
+            line-height: 1.8;
+
+            font-size: 13px;
+
+            text-align: justify;
+
+        }
+
+        .signatures {
+
+            margin-top: 60px;
+
+            width: 100%;
+
+        }
+
+        .signature-box {
+
+            width: 45%;
+
+            display: inline-block;
+
+            vertical-align: top;
+
+            text-align: center;
+
+            font-size: 13px;
+
+        }
+
+        .right-sign {
+
+            float: right;
+
+        }
+
+        .line {
+
+            border-top: 1px solid #000;
+
+            width: 85%;
+
+            margin: auto;
+
+            margin-bottom: 10px;
+
+        }
+
+        .fake-signature {
+
+            font-size: 55px;
+
+            margin-bottom: -10px;
+
+        }
+
+        .footer-info {
+
+            margin-top: 40px;
+
+            width: 100%;
+
+            font-size: 11px;
+
+            border-top: 1px solid #999;
+
+            padding-top: 10px;
+
+        }
+
+        .payment-places {
+
+            width: 55%;
+
+            display: inline-block;
+
+            vertical-align: top;
+
+        }
+
+        .phones {
+
+            width: 40%;
+
+            display: inline-block;
+
+            vertical-align: top;
+
+            text-align: center;
+
+        }
+
+        .pagina-2 {
+            margin-top: 8rem;
+        }
+
+        .top-line {
+
+            border-top: 3px double #000;
+
+            margin-top: 20px;
+
+            margin-bottom: 20px;
+
+        }
+
+        .text,
+        .agreement-text {
+
+            text-align: justify;
+
+            line-height: 1.9;
+
+            text-indent: 20px;
+
+        }
+
+        .taxpayer-box {
+
+            border: 1px solid #222;
+
+            padding: 12px;
+
+            margin-bottom: 15px;
+
+        }
+
+        .box-header {
+
+            font-size: 18px;
+
+            font-weight: bold;
+
+            text-transform: uppercase;
+
+            border-bottom: 2px solid #000;
+
+            padding-bottom: 6px;
+
+            margin-bottom: 15px;
+
+            letter-spacing: 1px;
+
+        }
+
+        .info-grid {
+
+            width: 100%;
+
+        }
+
+        .info-row {
+
+            margin-bottom: 6px;
+
+            font-size: 12px;
+
+        }
+
+        .label {
+
+            display: inline-block;
+
+            width: 160px;
+
+            font-weight: bold;
+
+        }
+
+        .label.right {
+
+            margin-left: 40px;
+
+            width: 140px;
+
+        }
+
+        .value {
+
+            display: inline-block;
+
+        }
+
+        .value.full {
+
+            width: 70%;
+
+        }
+
+        .strong {
+
+            font-weight: bold;
+
+            font-size: 15px;
+
+        }
+    </style>
+
+</head>
+
+<body>
+
+
+    <div class="header">
+
+        <img src="{{ logo_url }}" class="logo-left">
+
+
+        <div class="logo-right">
+
+            <div class="water-drop"></div>
+
+            <div class="water-text">
+                Administración de<br>
+                agua potable
+            </div>
+
+        </div>
+
+    </div>
+
+    <div class="top-line"></div>
+
+    <!-- PAGINA 1 -->
+    <div>
+
+        <div class="title">
+
+            CARTA DE COMPROMISO
+
+        </div>
+
+        <div class="text">
+
+            Yo,
+
+            <strong>
+
+                {{ ref.customer.full_name }}
+
+            </strong>,
+
+            me comprometo a cumplir con los pagos
+            correspondientes al convenio de
+            refinanciamiento N°
+
+            <strong>
+                {{ ref.id }}
+            </strong>.
+
+            Asimismo hago constancia del compromiso que asumo como contribuyente por el cumplimiento del pago de las
+            cuotas correspondiente al presente Contrato de Fraccionamiento por los montos y las fechas indicadas.
+        </div>
+
+        <div class="signature">
+
+            ___________________________________
+
+            <br>
+
+            Firma del contribuyente
+
+            <br><br>
+
+            Chilca,
+            {{ ref.created_at|date:"d/m/Y" }}
+
+        </div>
+
+    </div>
+
+    <!-- NUEVA PAGINA -->
+    <div class="page-break"></div>
+
+    <!-- PAGINA 2 -->
+    <div class="pagina-2">
+
+        <div class="title">
+
+            CONTRATO DE PAGO FRACCIONADO
+
+        </div>
+
+        <div class="taxpayer-box">
+
+            <div class="box-header">
+
+                DATOS DEL CONTRIBUYENTE
+
+            </div>
+
+            <div class="info-grid">
+
+                <div class="info-row">
+
+                    <div class="label">
+                        Código:
+                    </div>
+
+                    <div class="value">
+                        {{ ref.customer.codigo }}
+                    </div>
+
+                    <div class="label right">
+                        Convenio N°:
+                    </div>
+
+                    <div class="value strong">
+                        {{ ref.id }}
+                    </div>
+
+                </div>
+
+                <div class="info-row">
+
+                    <div class="label">
+                        Nombres o Razón Social:
+                    </div>
+
+                    <div class="value full">
+                        {{ ref.customer.full_name }}
+                    </div>
+
+                </div>
+
+                <div class="info-row">
+
+                    <div class="label">
+                        Dirección:
+                    </div>
+
+                    <div class="value full">
+                        {{ ref.customer.address|default:"SIN DIRECCIÓN" }}
+                    </div>
+
+                </div>
+
+                <div class="info-row">
+
+                    <div class="label">
+                        Fecha Inicio:
+                    </div>
+
+                    <div class="value">
+                        {{ ref.created_at|date:"d/m/Y" }}
+                    </div>
+
+                    <div class="label right">
+                        Total Deuda:
+                    </div>
+
+                    <div class="value">
+                        S/ {{ ref.total_amount }}
+                    </div>
+
+                </div>
+
+                <div class="info-row">
+
+                    <div class="label">
+                        Total Refinanciado:
+                    </div>
+
+                    <div class="value">
+                        S/ {{ ref.total_amount_with_interest }}
+                    </div>
+
+                    <div class="label right">
+                        Concepto:
+                    </div>
+
+                    <div class="value">
+                        Fraccionamiento
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+        <br><br>
+
+        <table>
+
+            <thead>
+
+                <tr>
+
+                    <th>#</th>
+
+                    <th>Vencimiento</th>
+
+                    <th>Capital</th>
+
+                    <th>Interés</th>
+
+                    <th>Total</th>
+
+                </tr>
+
+            </thead>
+
+            <tbody>
+
+                {% for item in installments %}
+
+                <tr>
+
+                    <td>
+                        {{ item.number }}
+                    </td>
+
+                    <td>
+                        {{ item.due_date|date:"d/m/Y" }}
+                    </td>
+
+                    <td class="text-end">
+
+                        S/ {{ item.capital_amount }}
+
+                    </td>
+
+                    <td class="text-end">
+
+                        S/ {{ item.interest_amount }}
+
+                    </td>
+
+                    <td class="text-end">
+
+                        S/ {{ item.total_amount }}
+
+                    </td>
+
+                </tr>
+
+                {% endfor %}
+
+            </tbody>
+
+        </table>
+
+
+        <div class="agreement-text">
+
+            <div class="section-title">
+                Convenio y Forma de Pago
+            </div>
+
+            Por la presente se otorga el fraccionamiento de su deuda del presente
+            contribuyente según detalles arriba mencionados, a fin que pueda
+            cumplir con sus obligaciones tributarias.
+
+            <br><br>
+
+            El incumplimiento de 2 ó mas cuotas, la Administración se reserva
+            el derecho de emitir la Resolución de Perdida de Beneficio del
+            presente fraccionamiento.
+
+        </div>
+
+
+        <div class="signatures">
+
+            <div class="signature-box left-sign">
+
+                <div class="line"></div>
+
+                <strong>
+                    Administración del Agua <br> Potable
+
+                    y
+
+                    Alcantarillado
+                </strong>
+
+            </div>
+
+            <div class="signature-box right-sign">
+
+                <div class="fake-signature">
+
+                </div>
+                <br>
+                <div class="line"></div>
+
+                <strong>
+                    Firma del Contribuyente ó Representante
+                </strong>
+
+                <br><br>
+
+                {{ ref.customer.full_name }}
+
+            </div>
+
+        </div>
+
+        <div class="footer-info">
+
+            <div class="payment-places">
+
+                <strong>Lugares de Pago:</strong>
+
+                <ol>
+
+                    <li><b>Palacio Municipal</b></li>
+
+                    <li><b>Banco de la Nación: N° 0-571-023849 </b><br>
+
+                        Si realiza el pago en el Banco de la Nación es obligatorio escanear el voucher y enviarlo al
+                        correo electrónico aguachilca@hotmail.com indicando: Nombre, Código de suministro y numero de
+                        recibo.
+
+                    </li>
+
+                </ol>
+
+            </div>
+
+            <div class="phones">
+
+                <strong>FONO AGUA EMERGENCIAS:</strong>
+
+                <br>
+                <br>
+
+                NEXTEL: (98) 141*8444
+
+                <br>
+
+                RPC: 964103926
+
+                <br>
+
+                Telef: 530-5136
+
+            </div>
+
+        </div>
+
+    </div>
+
+</body>
+
+</html>

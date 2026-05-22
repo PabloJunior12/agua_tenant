@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils.timezone import now
 from django.conf import settings
-from .models import Customer, WaterMeter, Manzana, ServiceCut, MeterAssignment, CutBatch, InvoiceInstallment, CashBox, Company, Config, CashOutflow, RefinancingInstallment, InvoiceConcept, CashMovement, DebtDetail, CashConcept, Reading, ReadingGeneration, Invoice, Category, Via, Calle, InvoiceDebt, Zona, Debt, InvoicePayment, DailyCashReport
+from .models import Customer,  RefinancingInstallment, DebtRefinancing, WaterMeter, Manzana, ServiceCut, MeterAssignment, CutBatch, InvoiceInstallment, CashBox, Company, Config, CashOutflow, RefinancingInstallment, InvoiceConcept, CashMovement, DebtDetail, CashConcept, Reading, ReadingGeneration, Invoice, Category, Via, Calle, InvoiceDebt, Zona, Debt, InvoicePayment, DailyCashReport
 from .utils import next_month_date, get_reading_status
 from django.db import transaction
 from django.db.models import Sum
@@ -558,7 +558,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
                     InvoiceInstallment.objects.create(
                         invoice=invoice,
                         installment=cuota,
-                        total=cuota.amount
+                        total=cuota.total_amount
                     )
 
                     cuota.paid = True
@@ -567,11 +567,11 @@ class InvoiceSerializer(serializers.ModelSerializer):
                     # 🔥 verificar si ya se completó la refinanciación
                     ref = cuota.refinancing
 
-                    if not ref.installments.filter(paid=False).exists():
+                    if not ref.installment_details.filter(paid=False).exists():
                         ref.paid = True
                         ref.save()
 
-                    total += cuota.amount
+                    total += cuota.total_amount
 
             else:
                 raise serializers.ValidationError({
@@ -826,6 +826,137 @@ class ServiceCutSerializer(serializers.ModelSerializer):
         data['customer'] = CustomerSerializer(instance.customer).data
 
         return data
+
+class RefinancingInstallmentSerializer(serializers.ModelSerializer):
+
+    class Meta:
+
+        model = RefinancingInstallment
+
+        fields = [
+
+            'id',
+
+            'number',
+
+            'capital_amount',
+
+            'interest_amount',
+
+            'total_amount',
+
+            'due_date',
+
+            'paid'
+
+        ]
+
+class DebtRefinancingSerializer(serializers.ModelSerializer):
+
+    customer_name = serializers.CharField(
+        source='customer.full_name',
+        read_only=True
+    )
+
+    pending_installments = serializers.SerializerMethodField()
+
+    paid_installments = serializers.SerializerMethodField()
+
+    total_paid = serializers.SerializerMethodField()
+
+    total_pending = serializers.SerializerMethodField()
+
+    installments_detail = (
+        RefinancingInstallmentSerializer(
+            source='installment_details',
+            many=True,
+            read_only=True
+        )
+    )
+
+    class Meta:
+
+        model = DebtRefinancing
+
+        fields = [
+
+            'id',
+
+            'customer',
+
+            'customer_name',
+
+            'total_amount',
+
+            'interest_amount',
+
+            'total_amount_with_interest',
+
+            'installments',
+
+            'paid',
+
+            'created_at',
+
+            'pending_installments',
+
+            'paid_installments',
+
+            'total_paid',
+
+            'total_pending',
+
+            'installments_detail'
+
+        ]
+
+    ####################################################
+    # CUOTAS PENDIENTES
+    ####################################################
+
+    def get_pending_installments(self, obj):
+
+        return obj.installment_details.filter(
+            paid=False
+        ).count()
+
+    ####################################################
+    # CUOTAS PAGADAS
+    ####################################################
+
+    def get_paid_installments(self, obj):
+
+        return obj.installment_details.filter(
+            paid=True
+        ).count()
+
+    ####################################################
+    # TOTAL PAGADO
+    ####################################################
+
+    def get_total_paid(self, obj):
+
+        total = obj.installment_details.filter(
+            paid=True
+        ).aggregate(
+            total=Sum('total_amount')
+        )['total']
+
+        return total or 0
+
+    ####################################################
+    # TOTAL PENDIENTE
+    ####################################################
+
+    def get_total_pending(self, obj):
+
+        total = obj.installment_details.filter(
+            paid=False
+        ).aggregate(
+            total=Sum('total_amount')
+        )['total']
+
+        return total or 0
 
 # class PaymentMethodSerializer(serializers.ModelSerializer):
 

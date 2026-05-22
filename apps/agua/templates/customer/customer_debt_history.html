@@ -2,195 +2,874 @@
 <html lang="es">
 
 <head>
+
     <meta charset="UTF-8">
-    <title>Historial de Deudas - {{ customer.full_name }}</title>
+
+    <title>
+        Estado Financiero - {{ customer.full_name }}
+    </title>
+
     <style>
+
         @page {
             size: A4;
-            margin: 1rem;
+            margin: 1.2cm;
         }
 
         body {
+
             font-family: 'DejaVu Sans', sans-serif;
-            font-size: 12px;
-            color: #333;
+
+            font-size: 11px;
+
+            color: #2b2b2b;
+
         }
 
-        header {
+        * {
+            box-sizing: border-box;
+        }
+
+        /************************************************
+        HEADER
+        ************************************************/
+
+        .header {
+
+            border-bottom: 2px solid #1f2937;
+
+            padding-bottom: 10px;
+
+            margin-bottom: 20px;
+
+        }
+
+        .header-table {
+
+            width: 100%;
+
+            border: none;
+
+        }
+
+        .header-table td {
+
+            border: none;
+
+            vertical-align: middle;
+
+        }
+
+        .logo {
+
+            width: 70px;
+
+        }
+
+        .title {
+
             text-align: center;
-            margin-bottom: 15px;
-            border-bottom: 2px solid #444;
-            padding-bottom: 5px;
+
         }
 
-        h1 {
-            font-size: 18px;
+        .title h1 {
+
             margin: 0;
+
+            font-size: 22px;
+
             text-transform: uppercase;
+
+            color: #111827;
+
         }
 
-        h2 {
-            font-size: 14px;
+        .title p {
+
             margin: 4px 0 0 0;
-            color: #555;
+
+            color: #6b7280;
+
+            font-size: 12px;
+
         }
 
-        h3 {
-            font-size: 13px;
-            margin-top: 15px;
-            color: #333;
-            border-bottom: 1px solid #ccc;
-            padding-bottom: 3px;
+        /************************************************
+        CLIENTE
+        ************************************************/
+
+        .customer-card {
+
+            border: 1px solid #d1d5db;
+
+            border-radius: 8px;
+
+            margin-bottom: 20px;
+
+            overflow: hidden;
+
         }
 
-        .year-section {
-            page-break-inside: avoid;
+        .section-title {
+
+            background: #1f2937;
+
+            color: white;
+
+            padding: 8px 12px;
+
+            font-weight: bold;
+
+            font-size: 12px;
+
+            text-transform: uppercase;
+
+            letter-spacing: .5px;
+
         }
 
-        .grid {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: space-between;
-          
+        .customer-info {
+
+            padding: 12px;
+
         }
+
+        .customer-info table {
+
+            width: 100%;
+
+            border: none;
+
+        }
+
+        .customer-info td {
+
+            border: none;
+
+            padding: 4px 0;
+
+            font-size: 11px;
+
+        }
+
+        /************************************************
+        SUMMARY
+        ************************************************/
+
+        .summary-table {
+
+            width: 100%;
+
+            margin-bottom: 20px;
+
+            border-collapse: separate;
+
+            border-spacing: 10px 0;
+
+        }
+
+        .summary-box {
+
+            border-radius: 8px;
+
+            padding: 14px;
+
+            color: white;
+
+            text-align: center;
+
+        }
+
+        .summary-box h3 {
+
+            margin: 0;
+
+            font-size: 12px;
+
+            font-weight: normal;
+
+        }
+
+        .summary-box p {
+
+            margin: 8px 0 0 0;
+
+            font-size: 18px;
+
+            font-weight: bold;
+
+        }
+
+        .bg-primary {
+            background: #1f2937;
+        }
+
+        .bg-success {
+            background: #198754;
+        }
+
+        .bg-warning {
+            background: #d97706;
+        }
+
+        .bg-danger {
+            background: #dc2626;
+        }
+
+        /************************************************
+        TABLES
+        ************************************************/
 
         table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 8px;
-            font-size: 11px;
-        }
 
-        th,
-        td {
-            border: 1px solid #bbb;
-            padding: 6px 4px;
-            text-align: center;
+            width: 100%;
+
+            border-collapse: collapse;
+
         }
 
         th {
-            background-color: #f2f2f2;
+
+            background: #f3f4f6;
+
+            border: 1px solid #d1d5db;
+
+            padding: 7px;
+
+            font-size: 10px;
+
             text-transform: uppercase;
+
+            color: #374151;
+
+        }
+
+        td {
+
+            border: 1px solid #d1d5db;
+
+            padding: 6px;
+
+            font-size: 10px;
+
+        }
+
+        .text-end {
+
+            text-align: right;
+
+        }
+
+        .text-center {
+
+            text-align: center;
+
+        }
+
+        .fw-bold {
+
             font-weight: bold;
+
         }
 
         tbody tr:nth-child(even) {
-            background-color: #fafafa;
+
+            background: #fafafa;
+
         }
 
-        .status-paid {
-            color: #0a7c25;
+        /************************************************
+        BADGES
+        ************************************************/
+
+        .badge {
+
+            display: inline-block;
+
+            padding: 4px 8px;
+
+            border-radius: 12px;
+
+            font-size: 9px;
+
             font-weight: bold;
+
+            color: white;
+
         }
 
-        .status-pending {
-            color: #b30000;
-            font-weight: bold;
+        .badge-success {
+
+            background: #198754;
+
         }
 
-        .totals {
-            margin-top: 15px;
-            font-size: 13px;
+        .badge-danger {
+
+            background: #dc2626;
+
         }
 
-        .totals table td {
-            border: none;
+        .badge-warning {
+
+            background: #d97706;
+
         }
 
-        .right {
-            text-align: right;
+        /************************************************
+        REFINANCIAMIENTO CARD
+        ************************************************/
+
+        .ref-card {
+
+            border: 1px solid #d1d5db;
+
+            border-radius: 8px;
+
+            margin-top: 18px;
+
+            overflow: hidden;
+
+            page-break-inside: avoid;
+
         }
 
-        .summary {
-            width: 60%;
-            margin-left: auto;
-            margin-top: 20px;
-            border: 1px solid #bbb;
-            border-collapse: collapse;
-        }
+        .ref-header {
 
-        .summary td {
-            padding: 6px;
+            background: #111827;
+
+            color: white;
+
+            padding: 10px 12px;
+
             font-size: 12px;
-        }
 
-        .summary tr td:first-child {
-            text-align: left;
-            background-color: #f9f9f9;
             font-weight: bold;
+
         }
 
-        .summary tr td:last-child {
-            text-align: right;
+        .ref-body {
+
+            padding: 12px;
+
         }
+
+        .ref-summary {
+
+            width: 100%;
+
+            margin-bottom: 12px;
+
+        }
+
+        .ref-summary td {
+
+            border: none;
+
+            padding: 4px 0;
+
+            font-size: 11px;
+
+        }
+
+        /************************************************
+        FOOTER
+        ************************************************/
+
+        .footer {
+
+            margin-top: 40px;
+
+            font-size: 10px;
+
+            text-align: center;
+
+            color: #6b7280;
+
+        }
+
+        .page-break {
+
+            page-break-before: always;
+
+        }
+
     </style>
+
 </head>
 
 <body>
 
-    <header>
-        <h1>Historial de Pagos</h1>
-        <h2>{{ customer.full_name }}</h2>
-    </header>
+    <!-- HEADER -->
 
-    <section class="customer-info">
-        <p>
-            <strong>DNI/RUC:</strong> {{ customer.number|default:"-" }}<br>
-            <strong>Dirección:</strong> {{ customer.address|default:"-" }}<br>
-            <strong>Categoría:</strong> {{ customer.category.name }}<br>
-            <strong>Medidor:</strong> {% if customer.has_meter %}Sí{% else %}No{% endif %}
-        </p>
-    </section>
+    <div class="header">
 
-    <div class="grid">
-        {% for year, debts in debts_by_year.items %}
-        <div class="year-section">
-            <h3>Año {{ year }}</h3>
+        <table class="header-table">
+
+            <tr>
+
+                <td width="90">
+
+                    <!-- LOGO -->
+                    <!-- <img src="{{ logo }}" class="logo"> -->
+
+                </td>
+
+                <td class="title">
+
+                    <h1>
+                        Estado Financiero
+                    </h1>
+
+                    <p>
+                        Historial de deudas y refinanciamientos
+                    </p>
+
+                </td>
+
+            </tr>
+
+        </table>
+
+    </div>
+
+    <!-- CLIENTE -->
+
+    <div class="customer-card">
+
+        <div class="section-title">
+
+            Información del cliente
+
+        </div>
+
+        <div class="customer-info">
 
             <table>
-                <thead>
-                    <tr>
-                        <th>Periodo</th>
-                        <th class="right">Monto</th>
-                        <th>Estado</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for d in debts %}
-                    <tr>
-                       <td>{{ d.period|date:"b - Y"|capfirst }}</td>
 
-                        <td class="right">S/ {{ d.amount|floatformat:2 }}</td>
-                        <td class="{% if d.paid %}status-paid{% else %}status-pending{% endif %}">
-                            {% if d.paid %}PAGADA{% else %}PENDIENTE{% endif %}
-                        </td>
-                    </tr>
-                    {% empty %}
-                    <tr>
-                        <td colspan="4" class="right">Sin registros</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
+                <tr>
+
+                    <td>
+
+                        <strong>Cliente:</strong>
+                        {{ customer.full_name }}
+
+                    </td>
+
+                    <td>
+
+                        <strong>DNI/RUC:</strong>
+                        {{ customer.number|default:"-" }}
+
+                    </td>
+
+                </tr>
+
+                <tr>
+
+                    <td>
+
+                        <strong>Dirección:</strong>
+                        {{ customer.address|default:"-" }}
+
+                    </td>
+
+                    <td>
+
+                        <strong>Categoría:</strong>
+                        {{ customer.category.name }}
+
+                    </td>
+
+                </tr>
+
+                <tr>
+
+                    <td>
+
+                        <strong>Medidor:</strong>
+
+                        {% if customer.has_meter %}
+                            SI
+                        {% else %}
+                            NO
+                        {% endif %}
+
+                    </td>
+
+                    <td>
+
+                        <strong>Fecha:</strong>
+                        {{ today|date:"d/m/Y H:i" }}
+
+                    </td>
+
+                </tr>
+
             </table>
 
         </div>
-        {% endfor %}
+
     </div>
 
-    <table class="summary">
+    <!-- RESUMEN -->
+
+    <table class="summary-table">
+
         <tr>
-            <td>Total Facturado:</td>
-            <td>S/ {{ total_debt|floatformat:2 }}</td>
+
+            <td>
+
+                <div class="summary-box bg-primary">
+
+                    <h3>
+                        Total Facturado
+                    </h3>
+
+                    <p>
+                        S/ {{ total_debt|floatformat:2 }}
+                    </p>
+
+                </div>
+
+            </td>
+
+            <td>
+
+                <div class="summary-box bg-success">
+
+                    <h3>
+                        Total Pagado
+                    </h3>
+
+                    <p>
+                        S/ {{ total_full_paid|floatformat:2 }}
+                    </p>
+
+                </div>
+
+            </td>
+
+            <td>
+
+                <div class="summary-box bg-danger">
+
+                    <h3>
+                        Total Pendiente
+                    </h3>
+
+                    <p>
+                        S/ {{ total_pending|floatformat:2 }}
+                    </p>
+
+                </div>
+
+            </td>
+
         </tr>
-        <tr>
-            <td>Total Pagado:</td>
-            <td>S/ {{ total_paid|floatformat:2 }}</td>
-        </tr>
-        <tr>
-            <td>Total Pendiente:</td>
-            <td>S/ {{ total_pending|floatformat:2 }}</td>
-        </tr>
+
     </table>
+
+    <!-- HISTORIAL DE DEUDAS -->
+
+    <div class="section-title">
+
+        Historial de deudas
+
+    </div>
+
+    {% for year, debts in debts_by_year.items %}
+
+    <div style="margin-top: 12px;">
+
+        <h3>
+            Año {{ year }}
+        </h3>
+
+        <table>
+
+            <thead>
+
+                <tr>
+
+                    <th>
+                        Periodo
+                    </th>
+
+                    <th>
+                        Descripción
+                    </th>
+
+                    <th>
+                        Estado
+                    </th>
+
+                    <th class="text-end">
+                        Total
+                    </th>
+
+                </tr>
+
+            </thead>
+
+            <tbody>
+
+                {% for d in debts %}
+
+                <tr>
+
+                    <td>
+
+                        {{ d.period|date:"M Y"|upper }}
+
+                    </td>
+
+                    <td>
+
+                        {{ d.description|default:"Servicio de agua" }}
+
+                    </td>
+
+                    <td class="text-center">
+
+                        {% if d.paid %}
+
+                        <span class="badge badge-success">
+                            PAGADA
+                        </span>
+
+                        {% elif d.is_refinanced %}
+
+                        <span class="badge badge-warning">
+                            REFINANCIADA
+                        </span>
+
+                        {% else %}
+
+                        <span class="badge badge-danger">
+                            PENDIENTE
+                        </span>
+
+                        {% endif %}
+
+                    </td>
+
+                    <td class="text-end fw-bold">
+
+                        S/ {{ d.amount|floatformat:2 }}
+
+                    </td>
+
+                </tr>
+
+                {% endfor %}
+
+            </tbody>
+
+        </table>
+
+    </div>
+
+    {% endfor %}
+
+    <!-- REFINANCIAMIENTOS -->
+
+    <!-- <div class="page-break"></div> -->
+
+    <div class="section-title" style="margin-top: 12px;">
+
+        Refinanciamientos
+
+    </div>
+
+    {% for ref in refinancings %}
+
+    <div class="ref-card">
+
+        <div class="ref-header">
+
+            Convenio #{{ ref.id }}
+
+        </div>
+
+        <div class="ref-body">
+
+            <table class="ref-summary">
+
+                <tr>
+
+                    <td>
+
+                        <strong>Fecha:</strong>
+                        {{ ref.created_at|date:"d/m/Y" }}
+
+                    </td>
+
+                    <td>
+
+                        <strong>Cuotas:</strong>
+                        {{ ref.installments }}
+
+                    </td>
+
+                    <td>
+
+                        <strong>Estado:</strong>
+
+                        {% if ref.paid %}
+
+                        PAGADO
+
+                        {% else %}
+
+                        PENDIENTE
+
+                        {% endif %}
+
+                    </td>
+
+                </tr>
+
+                <tr>
+
+                    <td>
+
+                        <strong>Deuda:</strong>
+                        S/ {{ ref.total_amount|floatformat:2 }}
+
+                    </td>
+
+                    <td>
+
+                        <strong>Interés:</strong>
+                        S/ {{ ref.interest_amount|floatformat:2 }}
+
+                    </td>
+
+                    <td>
+
+                        <strong>Total:</strong>
+                        S/ {{ ref.total_amount_with_interest|floatformat:2 }}
+
+                    </td>
+
+                </tr>
+
+            </table>
+
+            <!-- CRONOGRAMA -->
+
+            <table>
+
+                <thead>
+
+                    <tr>
+
+                        <th>#</th>
+
+                        <th>Vencimiento</th>
+
+                        <th class="text-end">
+                            Capital
+                        </th>
+
+                        <th class="text-end">
+                            Interés
+                        </th>
+
+                        <th class="text-end">
+                            Total
+                        </th>
+
+                        <th>
+                            Estado
+                        </th>
+
+                    </tr>
+
+                </thead>
+
+                <tbody>
+
+                    {% for item in ref.installment_details.all %}
+
+                    <tr>
+
+                        <td class="text-center">
+
+                            {{ item.number }}
+
+                        </td>
+
+                        <td class="text-center">
+
+                            {{ item.due_date|date:"d/m/Y" }}
+
+                        </td>
+
+                        <td class="text-end">
+
+                            S/ {{ item.capital_amount|floatformat:2 }}
+
+                        </td>
+
+                        <td class="text-end">
+
+                            S/ {{ item.interest_amount|floatformat:2 }}
+
+                        </td>
+
+                        <td class="text-end fw-bold">
+
+                            S/ {{ item.total_amount|floatformat:2 }}
+
+                        </td>
+
+                        <td class="text-center">
+
+                            {% if item.paid %}
+
+                            <span class="badge badge-success">
+                                PAGADA
+                            </span>
+
+                            {% else %}
+
+                            <span class="badge badge-danger">
+                                PENDIENTE
+                            </span>
+
+                            {% endif %}
+
+                        </td>
+
+                    </tr>
+
+                    {% endfor %}
+
+                </tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+    {% empty %}
+
+    <p>
+        El cliente no tiene refinanciamientos registrados.
+    </p>
+
+    {% endfor %}
+
+    <!-- FOOTER -->
+
+    <div class="footer">
+
+        Documento generado automáticamente por el sistema de gestión de agua potable.
+
+    </div>
 
 </body>
 

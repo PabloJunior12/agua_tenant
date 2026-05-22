@@ -4,13 +4,12 @@ from django.template.loader import render_to_string, get_template
 from django.http import HttpResponse, FileResponse
 from django.conf import settings
 from django.utils.timezone import now, localdate
-
-from django_q.tasks import async_task
-from django_tenants.utils import schema_context
-
 from django.db import transaction, connection
 from django.db.models import Max, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery, DecimalField, IntegerField
 from django.db.models.functions import Coalesce, Cast
+
+from django_q.tasks import async_task
+from django_tenants.utils import schema_context
 
 from rest_framework.views import APIView
 from rest_framework import filters, status, viewsets
@@ -21,33 +20,35 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import ValidationError
 from rest_framework.generics import ListAPIView
 
-
 from datetime import datetime, date, timedelta
 from weasyprint import HTML
 from collections import defaultdict
 from babel.dates import format_date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from pathlib import Path
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
+from dateutil.relativedelta import relativedelta
+
+from apps.agua.core.permissions import GlobalPermissionMixin, TenantPaymentCreatePermission
 from apps.tenant.utils.seed import generate_ticket
 from apps.tenant.models import Pay, ReceiptBatch
 from apps.user.models import User
+
 from .models import Customer, Manzana, CashMovement, Manzana, MeterAssignment, ServiceCut, Config, CutBatch, DailyCashReport, DebtRefinancing, DebtRefinancingDetail, RefinancingInstallment, WaterMeter, CashOutflow, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
 from .serializers import (
-    CustomerSerializer, ServiceCutSerializer, ManzanaSerializer, MeterAssignmentSerializer, MorosidadSerializer, CutBatchSerializer, WaterMeterSerializer, RefinancingInstallmentSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
+    CustomerSerializer, ServiceCutSerializer, DebtRefinancingSerializer, ManzanaSerializer, MeterAssignmentSerializer, MorosidadSerializer, CutBatchSerializer, WaterMeterSerializer, RefinancingInstallmentSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
     ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ConfigSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer)
-from apps.agua.core.permissions import GlobalPermissionMixin, TenantPaymentCreatePermission
-from pathlib import Path
+
+from .utils import get_catastral_queryset, get_full_catastral_queryset, calcular_igv_simple, obtener_calle, obtener_billing_type, get_morosos_queryset, ReadingFilter, DebtFilter, to_none_if_empty, clean_value, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
+from .core.mixins import TenantSafeMixin
+
 import io
 import pandas as pd
 import os
 import zipfile
 import uuid
-
-from .utils import get_catastral_queryset, get_full_catastral_queryset, calcular_igv_simple, obtener_calle, obtener_billing_type, get_morosos_queryset, ReadingFilter, DebtFilter, to_none_if_empty, clean_value, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
-from .core.mixins import TenantSafeMixin
 import mercadopago
-
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
 
 class CustomPagination(PageNumberPagination):
 
@@ -151,7 +152,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             total_debt=Coalesce(
                 Sum(
                     'debts__amount',
-                    filter=Q(debts__paid=False)
+                    filter=Q(debts__paid=False, debts__is_refinanced=False)
                 ),
                 0,
                 output_field=DecimalField(
@@ -927,31 +928,145 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
 
     @action(detail=True, methods=['get'], url_path='report/debt-history')
     def report_debt_history(self, request, pk=None, **kwargs):
+
         customer = self.get_object()
-        debts = customer.debts.all().order_by('period')
 
-        # Agrupar deudas por año
+        ####################################################
+        # DEUDAS
+        ####################################################
+
+        debts = customer.debts.filter(paid=False, is_refinanced=False).order_by('period')
+
         debts_by_year = defaultdict(list)
+
         for debt in debts:
-            debts_by_year[debt.period.year].append(debt)
 
-        total_debt = debts.aggregate(Sum('amount'))['amount__sum'] or 0
-        total_paid = debts.filter(paid=True).aggregate(Sum('amount'))['amount__sum'] or 0
-        total_pending = total_debt - total_paid
+            debts_by_year[
+                debt.period.year
+            ].append(debt)
 
-        html_string = render_to_string('customer/customer_debt_history.html', {
-            'customer': customer,
-            'debts_by_year': dict(sorted(debts_by_year.items())),
-            'total_debt': total_debt,
-            'total_paid': total_paid,
-            'total_pending': total_pending,
-            'today': datetime.now(),
-        })
+        ####################################################
+        # REFINANCIAMIENTOS
+        ####################################################
 
-        pdf = HTML(string=html_string).write_pdf()
-        filename = f"Historial_{customer.full_name.replace(' ', '_')}.pdf"
-        response = HttpResponse(pdf, content_type='application/pdf')
-        response['Content-Disposition'] = f'inline; filename="{filename}"'
+        refinancings = DebtRefinancing.objects.filter(
+            customer=customer
+        ).prefetch_related('installment_details')
+
+        ####################################################
+        # TOTALES DEUDAS
+        ####################################################
+
+        total_debt = (
+            debts.aggregate(
+                total=Sum('amount')
+            )['total']
+            or 0
+        )
+
+        total_paid = (
+            debts.filter(
+                paid=True
+            ).aggregate(
+                total=Sum('amount')
+            )['total']
+            or 0
+        )
+
+        total_pending = (
+            total_debt - total_paid
+        )
+
+        ####################################################
+        # TOTALES REFINANCIAMIENTO
+        ####################################################
+
+        total_refinanced = (
+            refinancings.aggregate(
+                total=Sum('total_amount_with_interest')
+            )['total']
+            or 0
+        )
+
+        total_refinancing_paid = (
+            RefinancingInstallment.objects.filter(
+                refinancing__customer=customer,
+                paid=True
+            ).aggregate(
+                total=Sum('total_amount')
+            )['total']
+            or 0
+        )
+
+        total_refinancing_pending = (
+            RefinancingInstallment.objects.filter(
+                refinancing__customer=customer,
+                paid=False
+            ).aggregate(
+                total=Sum('total_amount')
+            )['total']
+            or 0
+        )
+
+        total_full_paid = total_refinancing_paid + total_paid
+
+        ####################################################
+        # TEMPLATE
+        ####################################################
+
+        html_string = render_to_string(
+
+            'customer/customer_debt_history.html',
+
+            {
+
+                'customer': customer,
+
+                'debts_by_year': dict(
+                    sorted(debts_by_year.items())
+                ),
+
+                'refinancings': refinancings,
+
+                'total_debt': total_debt,
+
+                'total_paid': total_paid,
+
+                'total_pending': total_pending,
+
+                'total_refinanced': total_refinanced,
+
+                'total_refinancing_paid':
+                    total_refinancing_paid,
+
+                'total_refinancing_pending':
+                    total_refinancing_pending,
+
+                'today': datetime.now(),
+                'total_full_paid' : total_full_paid
+
+            }
+
+        )
+
+        pdf = HTML(
+            string=html_string
+        ).write_pdf()
+
+        filename = (
+            f"Historial_"
+            f"{customer.full_name.replace(' ', '_')}.pdf"
+        )
+
+        response = HttpResponse(
+            pdf,
+            content_type='application/pdf'
+        )
+
+        response[
+            'Content-Disposition'
+        ] = f'inline; filename="{filename}"'
+
         return response
 
     @action(detail=False, methods=['get'])
@@ -1082,6 +1197,31 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         wb.save(response)
 
         return response
+
+    @action(detail=True, methods=['get'],url_path='refinancings')
+    def refinancings(self, request, pk=None):
+
+        customer = self.get_object()
+
+        queryset = DebtRefinancing.objects.filter(
+            customer=customer
+        ).prefetch_related(
+
+            'details__debt',
+
+            Prefetch(
+                'installment_details',
+                queryset=RefinancingInstallment.objects.order_by('number')
+            )
+
+        ).order_by('-created_at')
+
+        serializer = DebtRefinancingSerializer(
+            queryset,
+            many=True
+        )
+
+        return Response(serializer.data)
 
 class CashBoxViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     
@@ -3190,68 +3330,25 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         tenant = connection.schema_name
 
         if tenant != "chilca":
-            raise ValidationError("Refinanciación no disponible")
+            raise ValidationError(
+                "Refinanciación no disponible"
+            )
 
         customer_id = request.data.get("customer_id")
+
         years = request.data.get("years", [])
+
         cuotas = int(request.data.get("cuotas", 1))
 
         if not years:
-            raise ValidationError("Debe seleccionar al menos un año")
-
-        if cuotas <= 0:
-            raise ValidationError("Cuotas inválidas")
-
-        debts = Debt.objects.filter(
-            customer_id=customer_id,
-            paid=False,
-            is_refinanced=False,
-            period__year__in=years   # 🔥 CLAVE
-        )
-
-        if not debts.exists():
-            raise ValidationError("No hay deudas válidas")
-
-        total = debts.aggregate(total=Sum('amount'))['total'] or 0
-
-        with transaction.atomic():
-
-            ref = DebtRefinancing.objects.create(
-                customer_id=customer_id,
-                total_amount=total
+            raise ValidationError(
+                "Debe seleccionar al menos un año"
             )
 
-            # vincular deudas
-            for d in debts:
-                DebtRefinancingDetail.objects.create(
-                    refinancing=ref,
-                    debt=d
-                )
-                d.is_refinanced = True
-                d.save()
-
-            # generar cuotas
-            monto_cuota = total / cuotas
-
-            for i in range(1, cuotas + 1):
-                RefinancingInstallment.objects.create(
-                    refinancing=ref,
-                    number=i,
-                    amount=monto_cuota
-                )
-
-        return Response({
-            "message": "Refinanciación creada",
-            "total": total,
-            "cuotas": cuotas
-        })
-
-    @action(detail=False, methods=['post'])
-    def preview_refinanciamiento(self, request):
-
-        customer_id = request.data.get("customer_id")
-        years = request.data.get("years", [])
-        cuotas = int(request.data.get("cuotas", 1))
+        if cuotas <= 0:
+            raise ValidationError(
+                "Cuotas inválidas"
+            )
 
         debts = Debt.objects.filter(
             customer_id=customer_id,
@@ -3260,21 +3357,328 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             period__year__in=years
         )
 
-        total = debts.aggregate(total=Sum('amount'))['total'] or 0
+        if not debts.exists():
+            raise ValidationError(
+                "No hay deudas válidas"
+            )
 
-        monto_cuota = round(total / cuotas, 2)
+        ####################################################
+        # TOTALES
+        ####################################################
+
+        total = (
+            debts.aggregate(total=Sum('amount'))['total']
+            or Decimal('0')
+        )
+
+        # 0.20% por cuota
+        INTEREST_RATE = Decimal('0.002')
+
+        total_interest_rate = (
+            INTEREST_RATE * cuotas
+        )
+
+        interest_amount = (
+            total * total_interest_rate
+        ).quantize(
+            Decimal('0.01'),
+            rounding=ROUND_HALF_UP
+        )
+
+        total_with_interest = (
+            total + interest_amount
+        ).quantize(
+            Decimal('0.01'),
+            rounding=ROUND_HALF_UP
+        )
+
+        ####################################################
+        # CUOTAS BASE
+        ####################################################
+
+        capital_per_installment = (
+            total / cuotas
+        ).quantize(
+            Decimal('0.01'),
+            rounding=ROUND_HALF_UP
+        )
+
+        interest_per_installment = (
+            interest_amount / cuotas
+        ).quantize(
+            Decimal('0.01'),
+            rounding=ROUND_HALF_UP
+        )
+
+        total_installment = (
+            capital_per_installment +
+            interest_per_installment
+        ).quantize(
+            Decimal('0.01'),
+            rounding=ROUND_HALF_UP
+        )
+
+        with transaction.atomic():
+
+            ####################################################
+            # REFINANCIACION
+            ####################################################
+
+            ref = DebtRefinancing.objects.create(
+
+                customer_id=customer_id,
+
+                total_amount=total,
+
+                interest_rate=Decimal('0.20'),
+
+                interest_amount=interest_amount,
+
+                total_amount_with_interest=total_with_interest,
+
+                installments=cuotas
+
+            )
+
+            ####################################################
+            # VINCULAR DEUDAS
+            ####################################################
+
+            for d in debts:
+
+                DebtRefinancingDetail.objects.create(
+                    refinancing=ref,
+                    debt=d
+                )
+
+                d.is_refinanced = True
+
+                d.save()
+
+            ####################################################
+            # GENERAR CRONOGRAMA
+            ####################################################
+
+            generated_total = Decimal('0')
+
+            for i in range(1, cuotas + 1):
+
+                due_date = (
+                    now().date() +
+                    relativedelta(months=i)
+                )
+
+                ############################################
+                # AJUSTAR ULTIMA CUOTA
+                ############################################
+
+                if i == cuotas:
+
+                    cuota_total = (
+                        total_with_interest -
+                        generated_total
+                    ).quantize(
+                        Decimal('0.01'),
+                        rounding=ROUND_HALF_UP
+                    )
+
+                else:
+
+                    cuota_total = total_installment
+
+                    generated_total += cuota_total
+
+                ############################################
+                # CAPITAL AJUSTADO
+                ############################################
+
+                capital = (
+                    cuota_total -
+                    interest_per_installment
+                ).quantize(
+                    Decimal('0.01'),
+                    rounding=ROUND_HALF_UP
+                )
+
+                RefinancingInstallment.objects.create(
+
+                    refinancing=ref,
+
+                    number=i,
+
+                    capital_amount=capital,
+
+                    interest_amount=interest_per_installment,
+
+                    total_amount=cuota_total,
+
+                    due_date=due_date
+
+                )
+
+        return Response({
+
+            "message": "Refinanciación creada correctamente",
+
+            "subtotal": total,
+
+            "interest_amount": interest_amount,
+
+            "total": total_with_interest,
+
+            "cuotas": cuotas
+
+        })
+
+    @action(detail=False, methods=['post'])
+    def preview_refinanciamiento(self, request):
+
+        customer_id = request.data.get("customer_id")
+
+        years = request.data.get("years", [])
+
+        cuotas = int(request.data.get("cuotas", 1))
+
+        if cuotas <= 0:
+            raise ValidationError(
+                "Cuotas inválidas"
+            )
+
+        debts = Debt.objects.filter(
+            customer_id=customer_id,
+            paid=False,
+            is_refinanced=False,
+            period__year__in=years
+        )
+
+        total = (
+            debts.aggregate(total=Sum('amount'))['total']
+            or Decimal('0')
+        )
+
+        ####################################################
+        # INTERES
+        ####################################################
+
+        INTEREST_RATE = Decimal('0.002')
+
+        total_interest_rate = (
+            INTEREST_RATE * cuotas
+        )
+
+        interest_amount = (
+            total * total_interest_rate
+        ).quantize(
+            Decimal('0.01'),
+            rounding=ROUND_HALF_UP
+        )
+
+        total_with_interest = (
+            total + interest_amount
+        ).quantize(
+            Decimal('0.01'),
+            rounding=ROUND_HALF_UP
+        )
+
+        ####################################################
+        # CUOTAS BASE
+        ####################################################
+
+        capital_per_installment = (
+            total / cuotas
+        ).quantize(
+            Decimal('0.01'),
+            rounding=ROUND_HALF_UP
+        )
+
+        interest_per_installment = (
+            interest_amount / cuotas
+        ).quantize(
+            Decimal('0.01'),
+            rounding=ROUND_HALF_UP
+        )
+
+        total_installment = (
+            capital_per_installment +
+            interest_per_installment
+        ).quantize(
+            Decimal('0.01'),
+            rounding=ROUND_HALF_UP
+        )
 
         cuotas_preview = []
 
+        generated_total = Decimal('0')
+
+        ####################################################
+        # CRONOGRAMA
+        ####################################################
+
         for i in range(1, cuotas + 1):
+
+            due_date = (
+                now().date() +
+                relativedelta(months=i)
+            )
+
+            ############################################
+            # AJUSTAR ULTIMA CUOTA
+            ############################################
+
+            if i == cuotas:
+
+                cuota_total = (
+                    total_with_interest -
+                    generated_total
+                ).quantize(
+                    Decimal('0.01'),
+                    rounding=ROUND_HALF_UP
+                )
+
+            else:
+
+                cuota_total = total_installment
+
+                generated_total += cuota_total
+
+            ############################################
+            # CAPITAL AJUSTADO
+            ############################################
+
+            capital = (
+                cuota_total -
+                interest_per_installment
+            ).quantize(
+                Decimal('0.01'),
+                rounding=ROUND_HALF_UP
+            )
+
             cuotas_preview.append({
+
                 "numero": i,
-                "monto": monto_cuota
+
+                "fecha_vencimiento": due_date,
+
+                "capital": capital,
+
+                "interes": interest_per_installment,
+
+                "total": cuota_total
+
             })
 
         return Response({
-            "total": total,
+
+            "subtotal": total,
+
+            "interest_rate": 0.20,
+
+            "interest_amount": interest_amount,
+
+            "total": total_with_interest,
+
             "cuotas": cuotas_preview
+
         })
 
     @action(detail=True, methods=['post'])
@@ -4555,3 +4959,142 @@ class PaymentStatusView(TenantSafeMixin, APIView):
 
         return Response(data)
 
+class DebtRefinancingViewSet(TenantSafeMixin, viewsets.ModelViewSet):
+
+    queryset = DebtRefinancing.objects.all().select_related('customer').prefetch_related('installment_details')
+    serializer_class = DebtRefinancingSerializer
+    filter_backends = [DjangoFilterBackend,filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['customer','paid']
+    search_fields = ['customer__full_name']
+    ordering = ['-id']
+
+    @action(detail=True, methods=['get'])
+    def report(self, request, pk=None):
+
+        company = Company.objects.first()
+
+        logo_url = request.build_absolute_uri(
+            settings.MEDIA_URL + f'{company.ruc}.jpeg'
+        )
+
+        refinancing = self.get_object()
+        installments = refinancing.installment_details.all()
+        html_string = render_to_string('refinancing/report.html',
+
+            {
+                'ref': refinancing,
+                'installments': installments,
+                'logo_url': logo_url
+            }
+
+        )
+
+        html = HTML(
+            string=html_string,
+            base_url=request.build_absolute_uri('/')
+        )
+
+        pdf_file = html.write_pdf()
+
+        response = HttpResponse(
+            pdf_file,
+            content_type='application/pdf'
+        )
+
+        response[
+            'Content-Disposition'
+        ] = f'inline; filename=refinanciamiento_{refinancing.id}.pdf'
+
+        return response
+
+    @action(detail=False, methods=['get'])
+    def resumen(self, request):
+
+        refinancings = self.get_queryset()
+
+        total_refinanced = refinancings.aggregate(
+            total=Sum('total_amount_with_interest')
+        )['total'] or 0
+
+        total_pending = RefinancingInstallment.objects.filter(
+            paid=False
+        ).aggregate(
+            total=Sum('total_amount')
+        )['total'] or 0
+
+        total_paid = RefinancingInstallment.objects.filter(
+            paid=True
+        ).aggregate(
+            total=Sum('total_amount')
+        )['total'] or 0
+
+        total_installments_pending = (
+            RefinancingInstallment.objects.filter(
+                paid=False
+            ).count()
+        )
+
+        total_installments_paid = (
+            RefinancingInstallment.objects.filter(
+                paid=True
+            ).count()
+        )
+
+        return Response({
+
+            "total_refinancings": refinancings.count(),
+
+            "total_refinanced": total_refinanced,
+
+            "total_paid": total_paid,
+
+            "total_pending": total_pending,
+
+            "installments_paid":
+                total_installments_paid,
+
+            "installments_pending":
+                total_installments_pending
+
+        })
+
+
+        installment_id = request.data.get(
+            'installment_id'
+        )
+
+        installment = get_object_or_404(
+
+            RefinancingInstallment,
+
+            id=installment_id,
+
+            refinancing_id=pk
+
+        )
+
+        installment.paid = True
+
+        installment.save()
+
+        ####################################################
+        # VALIDAR SI TODO ESTA PAGADO
+        ####################################################
+
+        refinancing = installment.refinancing
+
+        pending = refinancing.installments.filter(
+            paid=False
+        ).exists()
+
+        if not pending:
+
+            refinancing.paid = True
+
+            refinancing.save()
+
+        return Response({
+
+            "message": "Cuota pagada correctamente"
+
+        })

@@ -798,9 +798,40 @@ class DebtDetail(models.Model):
 
 class DebtRefinancing(models.Model):
 
-    customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
-    total_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    customer = models.ForeignKey(Customer,on_delete=models.CASCADE, related_name="refinancings")
+
+    # deuda original
+    total_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2
+    )
+
+    # 0.20% por cuota
+    interest_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0.20
+    )
+
+    # interés total generado
+    interest_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0
+    )
+
+    # total final refinanciado
+    total_amount_with_interest = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0
+    )
+
+    # cantidad de cuotas
+    installments = models.IntegerField(default=1)
+
     created_at = models.DateTimeField(auto_now_add=True)
+
     paid = models.BooleanField(default=False)
 
 class DebtRefinancingDetail(models.Model):
@@ -818,11 +849,34 @@ class RefinancingInstallment(models.Model):
     refinancing = models.ForeignKey(
         DebtRefinancing,
         on_delete=models.CASCADE,
-        related_name="installments"
+        related_name="installment_details"
     )
 
+    # número cuota
     number = models.IntegerField()
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
+
+    # capital sin interés
+    capital_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0
+    )
+
+    # interés cuota
+    interest_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0
+    )
+
+    # total cuota
+    total_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2
+    )
+
+    # fecha vencimiento
+    due_date = models.DateField()
 
     paid = models.BooleanField(default=False)
 
