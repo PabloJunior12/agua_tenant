@@ -404,10 +404,10 @@ def get_catastral_queryset(period_date):
                 IntegerField()
             ),
 
-            predio_number=Cast(
-                'customer__predio',
-                IntegerField()
-            ),
+            # predio_number=Cast(
+            #     'customer__predio',
+            #     IntegerField()
+            # ),
 
             # anterior
             previous_reading=Subquery(
@@ -447,7 +447,7 @@ def get_catastral_queryset(period_date):
         .order_by(
             'customer__sector',
             'mz_number',
-            'predio_number'
+           
         )
     )
 
@@ -471,10 +471,10 @@ def get_full_catastral_queryset():
                 IntegerField()
             ),
 
-            predio_number=Cast(
-                'predio',
-                IntegerField()
-            ),
+            # predio_number=Cast(
+            #     'predio',
+            #     IntegerField()
+            # ),
 
             meter_code=Subquery(
                 active_meter.values('meter__code')[:1]
@@ -487,6 +487,6 @@ def get_full_catastral_queryset():
         .order_by(
             'sector',
             'mz_number',
-            'predio_number',
+            # 'predio_number',
         )
     )
