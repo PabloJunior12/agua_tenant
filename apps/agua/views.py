@@ -143,16 +143,20 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
     filter_backends = [DjangoFilterBackend,filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['codigo', 'full_name', 'number']
     filterset_fields = ['codigo','zona','calle','state','has_meter']  
-
     ordering_fields = ['total_debt','codigo']  # 👈 habilitamos orden
   
     def get_queryset(self):
 
-        queryset = Customer.objects.annotate(
+        queryset = Customer.objects.filter(
+            status=True
+        ).annotate(
             total_debt=Coalesce(
                 Sum(
                     'debts__amount',
-                    filter=Q(debts__paid=False, debts__is_refinanced=False)
+                    filter=Q(
+                        debts__paid=False,
+                        debts__is_refinanced=False
+                    )
                 ),
                 0,
                 output_field=DecimalField(
@@ -293,182 +297,6 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
 
         serializer = CustomerWithDebtsSerializer(customer)
         return Response(serializer.data)
-    
-    @action(detail=False, methods=['post'])
-    def import_excel(self, request):
-
-        file = request.FILES.get('file')
-
-        if not file:
-            return Response({'error': 'No se proporciono un archivo.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            df = pd.read_excel(
-                file,
-                engine='openpyxl',
-                # header=2,
-                dtype={'Codigo': str}
-            )
-        except Exception as e:
-            return Response({'error': f'Error al leer el archivo: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Obtenemos la zona por defecto (sin zona)
-        default_zona = Zona.objects.first()
-        # df = df.head(5)
-
-        for index, row in df.iterrows():
-
-            codigo = str(row.get('Codigo')).strip()
-            if codigo:
-               codigo = codigo[-5:]
-
-            # DNI/RUC
-            number = to_none_if_empty(row.get('DNI/RUC.'))
-
-            identity_document_type = 0
-
-            if number and number.isdigit():
-                if len(number) == 8:
-                    identity_document_type = 1  # DNI
-                elif len(number) == 11:
-                    identity_document_type = 6  # RUC
-            else:
-                number = "00000000"  # Valor por defecto si está vacío o no es válido
-
-            full_name = to_none_if_empty(row.get('Usuario/Cliente'))
-            calle_dir = row.get('cod_direc')
-            zona_name = to_none_if_empty(row.get('Barrio'))
-            nro = to_none_if_empty(row.get("Nro."))
-            mz = to_none_if_empty(row.get("Mzna."))
-            lote = to_none_if_empty(row.get("Lote"))
-
-
-            if zona_name:
-
-                zona_name = zona_name.strip().upper()
-                zona = Zona.objects.filter(name__iexact=zona_name).first()
-                if not zona:
-                    zona = default_zona
-            else:
-
-                zona = default_zona
-
-            # Normalizar valor
-            if not calle_dir or str(calle_dir).strip() == '' or pd.isna(calle_dir):
-
-                calle_dir = 1
-
-            else:
-
-                calle_dir = int(str(calle_dir).strip())
-
-
-            calle_dir_ = str(calle_dir).zfill(4)
-
-            calle = Calle.objects.filter(codigo=calle_dir_).first()
-
-            # Si no existe, tomar la primera calle de toda la tabla
-            if not calle:
-                calle = Calle.objects.first()
-
-            parts = [
-                f"{calle.via.name} {calle.name}",
-                f"Mz {mz}" if mz else None,
-                f"Lt {lote}" if lote else None,
-                f"N° {nro}" if nro else None,
-            ]
-
-            # eliminar None y unir
-            address = " ".join([p for p in parts if p])
-            # Medidor
-            code = to_none_if_empty(row.get('Cod.Medidor'))
-            tiene_medidor_excel = to_none_if_empty_has_meter(row.get('T.Med.'))
-
-            if tiene_medidor_excel == "si":
-                has_meter = True
-            elif tiene_medidor_excel == "no":
-                has_meter = False
-            else:
-                has_meter = True if code else False
-
-            # Si tiene medidor pero no tiene código, generar uno
-            if has_meter and not code:
-               code = generar_codigo_medidor_unico()
-
-            # Categoría
-            category_id = to_none_if_empty(row.get('cod_categ')) or 1
-            category_id_ = str(category_id).zfill(2)
-            category = Category.objects.filter(codigo=category_id_).first()
-      
-            #Crear cliente
-            customer = Customer.objects.create(
-                codigo=codigo,
-                identity_document_type=identity_document_type,
-                full_name=full_name,
-                number=number,
-                address=address,
-                nro=nro,
-                mz=mz,
-                lote=lote,
-                has_meter=has_meter,
-                category=category,
-                calle = calle,
-                zona = zona
-            )
-
-            # Crear medidor solo si aplica y no existe
-            if has_meter and code:
-                if not WaterMeter.objects.filter(code=code).exists():
-                    WaterMeter.objects.create(
-                        customer=customer,
-                        code=code,
-                        installation_date=now()
-                    )
-
-        return Response({"message": "Clientes importados correctamente"}, status=status.HTTP_200_OK)
-
-    @action(detail=False, methods=['post'])
-    def import_excel_(self, request):
-
-        file = request.FILES.get('file')
-
-        if not file:
-            return Response({'error': 'No se proporciono un archivo.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            df = pd.read_excel(
-                file,
-                engine='openpyxl',
-                dtype={'c_codigo': str}
-            )
-        except Exception as e:
-            return Response({'error': f'Error al leer el archivo: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
-
-        for index, row in df.iterrows():
-
-            codigo = str(row.get('c_codigo')).strip()
-            supply_number = str(row.get('c_codigo')).strip()
-
-            provincia = clean_value(row.get("cr1"))
-            distrito = clean_value(row.get("cr2"))
-            sector = clean_value(row.get("cr3"))
-            mz = clean_value(row.get("cr4"))
-            lote = clean_value(row.get("cr5"))
-
-            if codigo:
-               codigo = codigo[-4:]
-            
-            customer = Customer.objects.get(codigo=f"0{codigo}")
-            customer.supply_number = supply_number
-            customer.provincia = provincia
-            customer.distrito = distrito
-            customer.sector = sector
-            customer.mz = mz
-            customer.lote = lote
-
-            customer.save()
-
-        return Response({"message": "Clientes importados correctamente"}, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['post'])
     def import_excel_2(self, request):
@@ -510,13 +338,9 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             identity_document_type = 0
             number = "00000000"
 
-            provincia = clean_value(row.get("CR1"))
-            distrito = clean_value(row.get("CR2"))
-            sector = clean_value(row.get("CR3"))
-            mz = clean_value(row.get("CR4"))
-            lote = clean_value(row.get("CR5"))
-
-          
+            provincia = 5
+            distrito = 5
+    
             observation = clean_value(row.get("OBSERVACIONES"))
 
             agua = clean_value(row.get("AGUA"))
@@ -528,7 +352,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
 
             if is_corte == "Si":
 
-               state = 'low'
+               state = 'cut'
 
             billing_type = obtener_billing_type(agua, alcantarillado)
 
@@ -563,7 +387,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                     ).first()
 
             # 🧪 TARIFA (puedes mapear si quieres)
-            tarifa = str(row.get('TARIFA')).strip().upper() if row.get('TARIFA') else "DOMESTICO"
+            tarifa = str(row.get('tarifa')).strip().upper() if row.get('tarifa') else "DOMESTICO"
 
             if has_meter:
 
@@ -573,17 +397,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
 
                 category = Category.objects.filter(has_meter=False).first()
 
-            # 📍 Zona por defecto (no viene en este Excel)
-            if sector:
-
-                zona = Zona.objects.filter(pk=sector).first()
-
-                if not zona:
-
-                    zona = default_zona
-            else:
-
-                zona = default_zona
+ 
 
             # 🚧 Evitar duplicados
             if Customer.objects.filter(codigo=codigo).exists():
@@ -600,13 +414,9 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                 address=address,
                 has_meter=has_meter,
                 category=category,
-                zona=zona,
 
                 provincia=provincia,
                 distrito=distrito,
-                sector=sector,
-                mz=mz,
-                lote=lote,
 
                 observation=observation,
                 billing_type=billing_type
@@ -1663,7 +1473,7 @@ class WaterMeterViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 )
 
             created = 0
-            duplicates = []
+            repeated = []
 
             for _, row in df.iterrows():
 
@@ -1675,19 +1485,29 @@ class WaterMeterViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
                 code = str(value).strip()
 
-                # ignorar DIRECTO y DESAGUE
-                if code.upper() in ['DIRECTO', 'DESAGUE']:
+                # ignorar valores
+                if code.upper() in ['DIRECTO', 'DESAGUE', 'SIN MEDIDO']:
                     continue
 
-                # duplicado
+                original_code = code
+
+                # si existe, generar -R1, -R2, etc.
                 if WaterMeter.objects.filter(code=code).exists():
 
-                    duplicates.append({
-                        "suministro": suministro,
-                        "code": code
-                    })
+                    counter = 1
 
-                    continue
+                    while WaterMeter.objects.filter(
+                        code=f"{original_code}-R{counter}"
+                    ).exists():
+                        counter += 1
+
+                    code = f"{original_code}-R{counter}"
+
+                    repeated.append({
+                        "suministro": suministro,
+                        "original": original_code,
+                        "new_code": code
+                    })
 
                 WaterMeter.objects.create(
                     code=code,
@@ -1699,7 +1519,7 @@ class WaterMeterViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             return Response({
                 "message": "Importación completada.",
                 "created": created,
-                "duplicates": duplicates
+                "repeated": repeated
             })
 
         except Exception as e:

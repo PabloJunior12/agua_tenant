@@ -317,6 +317,8 @@ class Customer(models.Model):
 
     state = models.CharField(max_length=15, choices=ESTADO_CHOICES, default="active")
 
+    status = models.BooleanField(default=True)
+
     # PANGOA
 
     connection_type = models.CharField(max_length=10, choices=CONNECTION_TYPES, default=CONNECTION_TYPE_NEW)
@@ -412,7 +414,7 @@ class Reading(models.Model):
     )
 
     observation = models.TextField(blank=True, null=True)
-    
+
     igv = models.IntegerField(default=18)
 
     total_water = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
