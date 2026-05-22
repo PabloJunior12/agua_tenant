@@ -373,6 +373,13 @@ class MeterAssignment(models.Model):
 
 class Reading(models.Model):
     
+    READING_STATUS = (
+        ('normal', 'Normal'),
+        ('estimated', 'Estimada'),
+        ('revised', 'Corregida'),
+        ('no_access', 'Sin acceso'),
+    )
+
     customer = models.ForeignKey('Customer', related_name='readings', on_delete=models.CASCADE)
 
     meter = models.ForeignKey(   # 👈 CLAVE
@@ -398,6 +405,14 @@ class Reading(models.Model):
     previous_reading = models.DecimalField(max_digits=10, decimal_places=3, default=0.000)
     consumption = models.DecimalField(max_digits=10, decimal_places=3, default=0.000)
 
+    status = models.CharField(
+        max_length=20,
+        choices=READING_STATUS,
+        default='normal'
+    )
+
+    observation = models.TextField(blank=True, null=True)
+    
     igv = models.IntegerField(default=18)
 
     total_water = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)

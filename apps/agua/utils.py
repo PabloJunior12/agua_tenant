@@ -439,6 +439,10 @@ def get_catastral_queryset(period_date):
                 output_field=DecimalField()
             ),
 
+            current_observation=Subquery(
+                current_period_qs.values('observation')[:1]
+            ),
+
         )
         .order_by(
             'customer__sector',

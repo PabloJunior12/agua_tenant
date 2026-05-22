@@ -174,6 +174,7 @@ class MeterAssignmentSerializer(serializers.ModelSerializer):
 
     customer = CustomerWaterMeterSerializer()
     meter = WaterMeterSerializer()
+    current_observation = serializers.CharField(read_only=True)
 
     previous_reading = serializers.DecimalField(
         max_digits=10,
@@ -227,6 +228,7 @@ class MeterAssignmentSerializer(serializers.ModelSerializer):
             'has_current_reading',
             'current_reading_value',
             'current_consumption',
+            'current_observation',
         ]
 
 class CashBoxSerializer(serializers.ModelSerializer):
