@@ -176,15 +176,12 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                     IntegerField()
                 ),
 
-                predio_number=Cast(
-                    'predio',
-                    IntegerField()
-                ),
+           
 
             ).order_by(
                 'sector',
                 'mz_number',
-                'predio_number',
+                # 'predio_number',
             )
 
         return queryset
