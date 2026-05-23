@@ -1549,6 +1549,7 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
     search_fields = ['meter__code']
     
     filterset_fields = [
+        'customer__codigo',
         'customer__state',
         'customer__zona',
         'customer__manzana'
@@ -2021,23 +2022,35 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
             )
 
             readings_map = {
-                r.period.month: r.current_reading
+                r.period.month: {
+                    "reading": r.current_reading,
+                    "observation": r.observation or ""
+                }
                 for r in readings
             }
 
             # Enero -> Diciembre
             for month_number in range(1, 13):
 
-                value = readings_map.get(month_number)
+                data = readings_map.get(month_number)
+
+                if data:
+
+                    reading = data["reading"]
+                    observation = data["observation"]
+
+                    cell_value = f"{float(reading)}"
+
+                    if observation:
+                        cell_value += f" ({observation})"
+
+                else:
+                    cell_value = ""
 
                 ws.cell(
                     row=row,
                     column=month_number + 11,
-                    value=(
-                        float(value)
-                        if value is not None
-                        else ""
-                    )
+                    value=cell_value
                 )
 
             row += 1
@@ -2272,50 +2285,6 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 # siguiente ciclo
                 previous_reading = current_reading
                    
-                ###########################################
-
-                # period_date = date(2026, month, 1)
-
-                # total_fixed_charge = tariff.price_fixed_charge
-                # total_sewer = tariff.price_sewer
-
-                # subtotal = total_water + tariff.price_sewer
-                # total_igv = calcular_igv_simple(subtotal)
-                # total_clean = tariff.price_clean
-
-                # sub_total_amount = (
-            
-                #     total_water +
-                #     total_sewer +
-                #     total_igv
-                # )
-
-                # total_amount = (
-
-                #     sub_total_amount +
-                #     total_clean +
-                #     total_fixed_charge
-                # )
-
-                # reading = Reading(
-                #     customer = customer,
-                #     period = date(2026, month, 1),
-                #     current_reading = current_reading or Decimal("0.00"),
-                #     previous_reading = previous_reading or Decimal("0.00"),
-                #     consumption = consumption or Decimal("0.00"),
-                #     total_water = total_water,
-                #     total_sewer = total_sewer,
-                #     total_clean = total_clean,
-                #     total_fixed_charge = total_fixed_charge,
-                #     total_igv = total_igv,
-                #     sub_total_amount = sub_total_amount,
-                #     total_amount = total_amount,
-                #     paid = paid
-                # )   
-
-                # reading.save()
-              
-
 
         return Response({"message": "Lecturas importadas correctamente"}, status=status.HTTP_200_OK)
 
