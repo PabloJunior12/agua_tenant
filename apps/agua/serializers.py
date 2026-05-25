@@ -141,6 +141,7 @@ class CustomerWaterMeterSerializer(serializers.ModelSerializer):
 
     zona = ZonaSerializer()
     manzana = ManzanaSerializer()
+    category = CategorySerializer()
 
     class Meta:
 
@@ -175,6 +176,8 @@ class MeterAssignmentSerializer(serializers.ModelSerializer):
     customer = CustomerWaterMeterSerializer()
     meter = WaterMeterSerializer()
     current_observation = serializers.CharField(read_only=True)
+
+    can_edit_previous = serializers.SerializerMethodField()
 
     previous_reading = serializers.DecimalField(
         max_digits=10,
@@ -229,7 +232,18 @@ class MeterAssignmentSerializer(serializers.ModelSerializer):
             'current_reading_value',
             'current_consumption',
             'current_observation',
+            'can_edit_previous',
         ]
+
+
+    def get_can_edit_previous(self, obj):
+
+        previous = obj.previous_reading
+
+        if previous is None:
+           return True
+
+        return float(previous) <= 0
 
 class CashBoxSerializer(serializers.ModelSerializer):
 

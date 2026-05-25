@@ -555,17 +555,24 @@ class Reading(models.Model):
 
         if self.meter:
 
-            previous = Reading.objects.filter(
-                customer=self.customer,
-                period__lt=self.period
-            ).order_by('-period').first()
+            # ✅ solo autocompletar si no enviaron previous_reading
+            if Decimal(self.previous_reading or 0) <= 0:
 
-            if previous:
-                self.previous_reading = previous.current_reading
+                previous = Reading.objects.filter(
+                    customer=self.customer,
+                    period__lt=self.period
+                ).order_by('-period').first()
 
-            self.consumption = Decimal(self.current_reading) - Decimal(self.previous_reading)
+                if previous:
+                    self.previous_reading = previous.current_reading
+
+            self.consumption = (
+                Decimal(self.current_reading)
+                - Decimal(self.previous_reading)
+            )
 
         else:
+
             self.previous_reading = Decimal('0.000')
             self.consumption = Decimal('0.000')
 

@@ -43,6 +43,8 @@ from .serializers import (
 from .utils import get_catastral_queryset, get_full_catastral_queryset, calcular_igv_simple, obtener_calle, obtener_billing_type, get_morosos_queryset, ReadingFilter, DebtFilter, to_none_if_empty, clean_value, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
 from .core.mixins import TenantSafeMixin
 
+import re
+
 import io
 import pandas as pd
 import os
@@ -2161,9 +2163,89 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='has-history/(?P<customer_id>[^/.]+)')
     def has_history(self, request, customer_id=None):
-        
-        exists = Reading.objects.filter(customer_id=customer_id).exists()
-        return Response({'hasHistory': exists})
+
+        period = request.GET.get('period')
+        reading_id = request.GET.get('reading_id')
+
+        readings = Reading.objects.filter(
+            customer_id=customer_id
+        )
+
+        # =====================================
+        # ÚLTIMA LECTURA
+        # =====================================
+        last_reading = readings.order_by('-period').first()
+
+        # =====================================
+        # VALIDAR LECTURAS POSTERIORES
+        # =====================================
+        has_next_readings = False
+        has_paid_next_readings = False
+
+        if period:
+
+            next_readings = readings.filter(
+                period__gt=period
+            )
+
+            # excluir lectura actual en edición
+            if reading_id:
+
+                next_readings = next_readings.exclude(
+                    id=reading_id
+                )
+
+            has_next_readings = next_readings.exists()
+
+            has_paid_next_readings = next_readings.filter(
+                paid=True
+            ).exists()
+
+        # =====================================
+        # SIN HISTORIAL
+        # =====================================
+        if not last_reading:
+
+            return Response({
+
+                'hasHistory': False,
+
+                'hasNextReadings': False,
+
+                'hasPaidNextReadings': False,
+
+                'lastReading': None
+
+            })
+
+        # =====================================
+        # RESPUESTA
+        # =====================================
+        return Response({
+
+            'hasHistory': True,
+
+            'hasNextReadings': has_next_readings,
+
+            'hasPaidNextReadings': has_paid_next_readings,
+
+            'lastReading': {
+
+                'id': last_reading.id,
+
+                'period': last_reading.period,
+
+                'previous_reading': last_reading.previous_reading,
+
+                'current_reading': last_reading.current_reading,
+
+                'consumption': last_reading.consumption,
+
+                'paid': last_reading.paid,
+
+            }
+
+        })
 
     @action(detail=False, methods=['post'])
     def import_excel(self, request):
@@ -2230,7 +2312,7 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
                 value = to_decimal_or_none(row.get(col))
 
-                if value is not None and value > 0:
+                if value is not None and value >= 0:
                     valid_readings.append((col, month, value))
 
             # 🚫 todas son 0 → omitir
@@ -3576,301 +3658,15 @@ class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
         invoice.cancel()
         return Response({"message": "Factura anulada"}, status=status.HTTP_200_OK)
 
-    @transaction.atomic
     @action(detail=False, methods=['post'])
-    def import_excel_payments(self, request):
+    def preview_sheets(self, request):
 
         file = request.FILES.get("file")
 
-        if not file:
-
-            return Response(
-                {"detail": "Debe subir un archivo Excel."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-
-            df = pd.read_excel(file)
-
-        except Exception as e:
-
-            return Response(
-                {"detail": f"Error leyendo Excel: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # ==========================================
-        # MAPEO DE COLUMNAS
-        # ==========================================
-
-        MONTH_COLUMNS = {
-            1: ("ENERO - AGUA", "ENERO - DESAGUE"),
-            2: ("FEBRERO - AGUA", "FEBRERO - DESAGUE"),
-            3: ("MARZO - AGUA", "MARZO - DESAGUE"),
-            4: ("ABRIL - AGUA", "ABRIL - DESAGUE"),
-            5: ("MAYO - AGUA", "MAYO - DESAGUE"),
-            6: ("JUNIO - AGUA", "JUNIO - DESAGUE"),
-            7: ("JULIO - AGUA", "JULIO - DESAGUE"),
-            8: ("AGOSTO - AGUA", "AGOSTO - DESAGUE"),
-            9: ("SETIEMBRE - AGUA", "SETIEMBRE - DESAGUE"),
-            10: ("OCTUBRE - AGUA", "OCTUBRE - DESAGUE"),
-            11: ("NOVIEMBRE - AGUA", "NOVIEMBRE - DESAGUE"),
-            12: ("DICIEMBRE - AGUA", "DICIEMBRE - DESAGUE"),
-        }
-
-        YEAR = 2026
-
-        created = 0
-        ignored = 0
-        errors = []
-
-        # ==========================================
-        # CAJA ABIERTA
-        # ==========================================
-
-        cashbox = CashBox.objects.filter(
-            status="open"
-        ).first()
-
-        if not cashbox:
-
-            return Response(
-                {"detail": "No existe caja abierta."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # ==========================================
-        # CONCEPTO
-        # ==========================================
-
-        concept = CashConcept.objects.filter(
-            system_key="price_water"
-        ).first()
-
-        if not concept:
-
-            return Response(
-                {"detail": "No existe concepto de caja."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # ==========================================
-        # RECORRER FILAS
-        # ==========================================
-
-        for index, row in df.iterrows():
-
-            try:
-
-                excel_date = row.get("FECHA")
-                payment_date = pd.to_datetime(excel_date)
-            
-                codigo = clean_value(row.get("CODIGO", ""))
-            
-                if not codigo:
-                    continue
-
-                customer = Customer.objects.filter(codigo=codigo).first()
-
-                if not customer:
-
-                    errors.append({
-                        "fila": index + 2,
-                        "codigo": codigo,
-                        "error": "Cliente no encontrado"
-                    })
-
-                    continue
-                
-                # ==========================================
-                # RECORRER MESES
-                # ==========================================
-
-                for month, cols in MONTH_COLUMNS.items():
-
-                    col_agua, col_desague = cols
-
-                    try:
-
-                        agua = Decimal(
-                            str(row.get(col_agua, 0) or 0)
-                        )
-
-                    except (InvalidOperation, TypeError):
-
-                        agua = Decimal("0")
-
-                    try:
-
-                        desague = Decimal(
-                            str(row.get(col_desague, 0) or 0)
-                        )
-
-                    except (InvalidOperation, TypeError):
-
-                        desague = Decimal("0")
-
-                    # ==========================================
-                    # SI NO TIENE MONTO -> IGNORAR
-                    # ==========================================
-
-                    if agua <= 0 and desague <= 0:
-                        continue
-
-                    period = date(YEAR, month, 1)
-
-                    # ==========================================
-                    # REGLA IMPORTANTE
-                    # ==========================================
-                    # Si tiene deuda más antigua pendiente
-                    # NO permitir pagar meses posteriores
-                    #
-                    # Ejemplo:
-                    # Tiene deuda febrero
-                    # Pero Excel marca mayo
-                    # => IGNORAR MAYO
-                    # ==========================================
-
-                    oldest_pending = Debt.objects.filter(
-                        customer=customer,
-                        paid=False,
-                        is_refinanced=False
-                    ).order_by("period").first()
-
-                    if not oldest_pending:
-                        continue
-
-                    if oldest_pending.period != period:
-
-                        ignored += 1
-
-                        errors.append({
-                            "fila": index + 2,
-                            "codigo": codigo,
-                            "mes_excel": period.strftime("%Y-%m"),
-                            "deuda_pendiente": oldest_pending.period.strftime("%Y-%m"),
-                            "error": (
-                                "Tiene una deuda más antigua pendiente. "
-                                "Pago ignorado."
-                            )
-                        })
-
-                        continue
-
-                    # ==========================================
-                    # BUSCAR DEUDA
-                    # ==========================================
-
-                    debt = Debt.objects.filter(
-                        customer=customer,
-                        period=period,
-                        paid=False,
-                        is_refinanced=False
-                    ).first()
-
-                    if not debt:
-
-                        ignored += 1
-
-                        continue
-
-                    # ==========================================
-                    # EVITAR DUPLICADOS
-                    # ==========================================
-
-                    if debt.invoice_links.exists():
-
-                        ignored += 1
-
-                        continue
-
-                    # ==========================================
-                    # CREAR FACTURA
-                    # ==========================================
-
-                    invoice = Invoice.objects.create(
-                        customer=customer,
-                        total=debt.amount,
-                        user_id=request.user.id,
-                        notes="Importado desde Excel",
-                        payment_origin="counter",
-                        reference="debt",
-                        date=payment_date,
-                        created_at=payment_date
-                    )
-
-                    # ==========================================
-                    # RELACION FACTURA - DEUDA
-                    # ==========================================
-
-                    InvoiceDebt.objects.create(
-                        invoice=invoice,
-                        debt=debt,
-                        total=debt.amount
-                    )
-
-                    # ==========================================
-                    # PAGO
-                    # ==========================================
-
-                    invoice_payment = InvoicePayment.objects.create(
-                        invoice=invoice,
-                        cashbox=cashbox,
-                        method="cash",
-                        total=debt.amount,
-                        reference="IMPORTACION EXCEL",
-                        created_at=payment_date
-                    )
-
-                    # ==========================================
-                    # MARCAR DEUDA PAGADA
-                    # ==========================================
-
-                    debt.paid = True
-                    debt.save(update_fields=["paid"])
-
-                    # ==========================================
-                    # MARCAR LECTURA PAGADA
-                    # ==========================================
-
-                    if debt.reading:
-
-                        debt.reading.paid = True
-                        debt.reading.save(
-                            skip_process=True,
-                            update_fields=["paid"]
-                        )
-
-                    # ==========================================
-                    # MOVIMIENTO DE CAJA
-                    # ==========================================
-
-                    CashMovement.objects.create(
-                        cashbox=cashbox,
-                        concept=concept,
-                        method="cash",
-                        total=debt.amount,
-                        reference=f"IMPORT EXCEL {invoice.code}",
-                        invoice_payment=invoice_payment,
-                        created_at=payment_date
-                    )
-
-                    created += 1
-
-            except Exception as e:
-
-                errors.append({
-                    "fila": index + 2,
-                    "codigo": row.get("CODIGO"),
-                    "error": str(e)
-                })
+        excel_file = pd.ExcelFile(file)
 
         return Response({
-            "success": True,
-            "facturas_creadas": created,
-            "ignorados": ignored,
-            "errores": errors
+            "sheets": excel_file.sheet_names
         })
 
 class CashConceptViewSet(TenantSafeMixin, viewsets.ModelViewSet):

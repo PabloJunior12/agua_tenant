@@ -4,12 +4,12 @@ import pandas as pd
 import uuid
 import re
 from django.db import transaction
-from django.db.models import Max, IntegerField, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery, DecimalField
+from django.db.models import Max, IntegerField, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery, DecimalField, Value
 from django.utils.timezone import now, localdate
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from .models import Reading, MeterAssignment, Debt, DailyCashReport, CashBox, WaterMeter, ServiceCut, Customer, Calle
-from django.db.models.functions import Cast
+from django.db.models.functions import Cast, Coalesce
 
 MESES = {
     "ENERO": 1,
@@ -371,21 +371,31 @@ def get_morosos_queryset(zona_id=None, min_months=1, state=None):
 
 def get_catastral_queryset(period_date):
 
-    previous_reading_qs = (
-        Reading.objects
-        .filter(
-            customer=OuterRef('customer'),
-            period__lt=period_date
-        )
-        .order_by('-period')
-    )
-
+    # ==========================================
+    # LECTURA DEL PERÍODO ACTUAL
+    # ==========================================
     current_period_qs = (
         Reading.objects
         .filter(
             customer=OuterRef('customer'),
+            meter=OuterRef('meter'),
             period=period_date
         )
+        .order_by('-id')
+    )
+
+    # ==========================================
+    # ÚLTIMA LECTURA ANTERIOR
+    # (solo como fallback)
+    # ==========================================
+    previous_period_qs = (
+        Reading.objects
+        .filter(
+            customer=OuterRef('customer'),
+            meter=OuterRef('meter'),
+            period__lt=period_date
+        )
+        .order_by('-period')
     )
 
     return (
@@ -395,50 +405,84 @@ def get_catastral_queryset(period_date):
             'meter'
         )
         .filter(
-            customer__state__in=['active'],
+            customer__state='active',
         )
         .annotate(
 
+            # ==========================================
+            # ORDENAMIENTO
+            # ==========================================
             mz_number=Cast(
                 'customer__manzana__codigo',
                 IntegerField()
             ),
 
-            # predio_number=Cast(
-            #     'customer__predio',
-            #     IntegerField()
-            # ),
-
-            # anterior
-            previous_reading=Subquery(
-                previous_reading_qs.values('current_reading')[:1],
-                output_field=DecimalField()
-            ),
-
-            previous_consumption=Subquery(
-                previous_reading_qs.values('consumption')[:1],
-                output_field=DecimalField()
-            ),
-
-            previous_period=Subquery(
-                previous_reading_qs.values('period')[:1]
-            ),
-
-            # actual
+            # ==========================================
+            # EXISTE LECTURA ACTUAL
+            # ==========================================
             has_current_reading=Subquery(
                 current_period_qs.values('id')[:1]
             ),
 
+            # ==========================================
+            # LECTURA ANTERIOR
+            #
+            # PRIORIDAD:
+            # 1. previous_reading del período actual
+            # 2. current_reading del período anterior
+            # ==========================================
+            previous_reading=Coalesce(
+
+                # snapshot guardado en lectura actual
+                Subquery(
+                    current_period_qs.values('previous_reading')[:1],
+                    output_field=DecimalField()
+                ),
+
+                # fallback al último current_reading
+                Subquery(
+                    previous_period_qs.values('current_reading')[:1],
+                    output_field=DecimalField()
+                ),
+
+                Value(0),
+                output_field=DecimalField()
+            ),
+
+            # ==========================================
+            # CONSUMO ANTERIOR
+            # ==========================================
+            previous_consumption=Subquery(
+                previous_period_qs.values('consumption')[:1],
+                output_field=DecimalField()
+            ),
+
+            # ==========================================
+            # PERÍODO ANTERIOR
+            # ==========================================
+            previous_period=Subquery(
+                previous_period_qs.values('period')[:1]
+            ),
+
+            # ==========================================
+            # LECTURA ACTUAL
+            # ==========================================
             current_reading_value=Subquery(
                 current_period_qs.values('current_reading')[:1],
                 output_field=DecimalField()
             ),
 
+            # ==========================================
+            # CONSUMO ACTUAL
+            # ==========================================
             current_consumption=Subquery(
                 current_period_qs.values('consumption')[:1],
                 output_field=DecimalField()
             ),
 
+            # ==========================================
+            # OBSERVACIÓN ACTUAL
+            # ==========================================
             current_observation=Subquery(
                 current_period_qs.values('observation')[:1]
             ),
@@ -447,7 +491,6 @@ def get_catastral_queryset(period_date):
         .order_by(
             'customer__sector',
             'mz_number',
-           
         )
     )
 
