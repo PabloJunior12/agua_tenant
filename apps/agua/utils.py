@@ -417,6 +417,11 @@ def get_catastral_queryset(period_date):
                 IntegerField()
             ),
 
+            predio_number=Cast(
+                    'customer__predio',
+                    IntegerField()
+                ),
+
             # ==========================================
             # EXISTE LECTURA ACTUAL
             # ==========================================
@@ -491,6 +496,7 @@ def get_catastral_queryset(period_date):
         .order_by(
             'customer__sector',
             'mz_number',
+            'predio_number',
         )
     )
 
