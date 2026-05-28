@@ -149,17 +149,31 @@
 
         <td>
           {{ item.customer.address }}<br>
-          <span class="small">
-            Mz {{ item.customer.mz }} Lt {{ item.customer.lote }}
-          </span>
+
+  <span><b>CR1:</b> {{ item.customer.provincia|default:"---" }}</span>
+<span><b>CR2:</b> {{ item.customer.distrito|default:"---" }}</span>
+<span><b>CR3:</b> {{ item.customer.sector|default:"---" }}</span>
+
+<span>
+    <b>CR4:</b>
+    {% if item.customer.manzana %}
+        {{ item.customer.manzana.codigo }}
+    {% else %}
+        {{ item.customer.mz|default:"---" }}
+    {% endif %}
+</span>
+
+<span><b>CR5:</b> {{ item.customer.predio|default:"---" }}</span>
         </td>
 
-        <td class="center">
-          {% if item.customer.meter %}
-          {{ item.customer.meter.code }}
-          {% else %}
-          ---
-          {% endif %}
+        <td>
+                {% with assignment=item.customer.active_assignments.0 %}
+            {% if assignment %}
+                {{ assignment.meter.code }}
+            {% else %}
+                ---
+            {% endif %}
+        {% endwith %}
         </td>
 
         <td class="center">

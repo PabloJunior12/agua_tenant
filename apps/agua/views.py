@@ -2428,7 +2428,7 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         grouped_debts.sort(key=lambda x: x["year"], reverse=True)
 
         total_previous_debt = previous_debts.aggregate(total=Sum("amount"))["total"] or 0
-        total_general = reading.total_amount + total_previous_debt
+        total_general = debt.amount + total_previous_debt
 
         # 🚀 armamos la misma estructura que en el masivo
         readings_context = [{
@@ -2438,6 +2438,8 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             "total_previous_debt": total_previous_debt,
             "total_general": total_general,
         }]
+
+        print(readings_context)
 
         if tenant == 'chilca':
 
@@ -4488,24 +4490,54 @@ class CutBatchViewSet(TenantSafeMixin, viewsets.ModelViewSet):
             .select_related(
                 "customer",
                 "customer__calle",
-                "customer__zona"
+                "customer__zona",
+                "customer__manzana"
+            )
+            .prefetch_related(
+                Prefetch(
+                    "customer__meterassignment_set",
+                    queryset=MeterAssignment.objects.filter(
+                        is_active=True
+                    ).select_related("meter"),
+                    to_attr="active_assignments"
+                )
             )
             .annotate(
+
+                # ==========================================
+                # TOTALES
+                # ==========================================
+
                 total_debt=Sum(
                     "customer__debts__amount",
                     filter=Q(customer__debts__paid=False)
                 ),
+
                 unpaid_months=Count(
                     "customer__debts__id",
                     filter=Q(customer__debts__paid=False),
                     distinct=True
-                )
+                ),
+
+                # ==========================================
+                # ORDENAMIENTO
+                # ==========================================
+
+                mz_number=Cast(
+                    "customer__manzana__codigo",
+                    IntegerField()
+                ),
+
+                predio_number=Cast(
+                    "customer__predio",
+                    IntegerField()
+                ),
             )
             .prefetch_related("debts")
             .order_by(
-                "customer__calle_id",
-                "customer__mz",
-                "customer__lote"
+                "customer__sector",
+                "mz_number",
+                "predio_number",
             )
         )
 
