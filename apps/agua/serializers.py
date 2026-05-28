@@ -450,7 +450,7 @@ class InvoiceDebtSerializer(serializers.ModelSerializer):
         fields = ['debt']
 
 class InvoiceConceptSerializer(serializers.ModelSerializer):
-    
+
     concept = serializers.PrimaryKeyRelatedField(queryset=CashConcept.objects.all())
 
     service_charge_id = serializers.IntegerField(
@@ -885,6 +885,11 @@ class ServiceChargeSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         # Agregar toda la data del cliente usando CustomerSerializer
         data['concept'] = CashConceptSerializer(instance.concept).data
+        data['invoice'] = {
+            'id': instance.invoice.id,
+            'code': instance.invoice.code
+        } if instance.invoice else None
+
         return data
 
 class RefinancingInstallmentSerializer(serializers.ModelSerializer):
