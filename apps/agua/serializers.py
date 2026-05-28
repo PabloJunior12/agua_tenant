@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils.timezone import now
 from django.conf import settings
-from .models import Customer,  RefinancingInstallment, DebtRefinancing, WaterMeter, Manzana, ServiceCut, MeterAssignment, CutBatch, InvoiceInstallment, CashBox, Company, Config, CashOutflow, RefinancingInstallment, InvoiceConcept, CashMovement, DebtDetail, CashConcept, Reading, ReadingGeneration, Invoice, Category, Via, Calle, InvoiceDebt, Zona, Debt, InvoicePayment, DailyCashReport
+from .models import Customer,  RefinancingInstallment, DebtRefinancing, ServiceCharge, WaterMeter, Manzana, ServiceCut, MeterAssignment, CutBatch, InvoiceInstallment, CashBox, Company, Config, CashOutflow, RefinancingInstallment, InvoiceConcept, CashMovement, DebtDetail, CashConcept, Reading, ReadingGeneration, Invoice, Category, Via, Calle, InvoiceDebt, Zona, Debt, InvoicePayment, DailyCashReport
 from .utils import next_month_date, get_reading_status
 from django.db import transaction
 from django.db.models import Sum
@@ -450,7 +450,13 @@ class InvoiceDebtSerializer(serializers.ModelSerializer):
         fields = ['debt']
 
 class InvoiceConceptSerializer(serializers.ModelSerializer):
+    
     concept = serializers.PrimaryKeyRelatedField(queryset=CashConcept.objects.all())
+
+    service_charge_id = serializers.IntegerField(
+        required=False,
+        allow_null=True
+    )
 
     class Meta:
         model = InvoiceConcept
@@ -546,10 +552,13 @@ class InvoiceSerializer(serializers.ModelSerializer):
             # --- CASO 2: PAGO DE CONCEPTOS ---
             elif concepts_data:
                 for item in concepts_data:
+
+                    print(item)
                     # ahora concept es un PrimaryKeyRelatedField (solo el id)
                     concept = item["concept"]
                     total_concept = item.get("total", 0)
                     description = item.get("description")
+                    service_charge_id = item.get("service_charge_id")
 
                     InvoiceConcept.objects.create(
                         invoice=invoice,
@@ -557,6 +566,27 @@ class InvoiceSerializer(serializers.ModelSerializer):
                         description=description,
                         total=total_concept
                     )
+
+                    """
+                    =========================================
+                    SERVICE CHARGE
+                    =========================================
+                    """
+
+                    if service_charge_id:
+
+                        service_charge = ServiceCharge.objects.filter(
+                            id=service_charge_id
+                        ).first()
+                        print(service_charge.id)
+                        if service_charge:
+
+                            service_charge.status = "paid"
+
+                            service_charge.invoice = invoice
+
+                            service_charge.save()
+
                     total += total_concept
 
             # --- CASO 3: PAGO DE CUOTAS ---
@@ -841,6 +871,20 @@ class ServiceCutSerializer(serializers.ModelSerializer):
         # Agregar toda la data del cliente usando CustomerSerializer
         data['customer'] = CustomerSerializer(instance.customer).data
 
+        return data
+
+class ServiceChargeSerializer(serializers.ModelSerializer): 
+
+    class Meta:
+        
+        model = ServiceCharge
+        fields = "__all__"
+
+    def to_representation(self, instance):
+
+        data = super().to_representation(instance)
+        # Agregar toda la data del cliente usando CustomerSerializer
+        data['concept'] = CashConceptSerializer(instance.concept).data
         return data
 
 class RefinancingInstallmentSerializer(serializers.ModelSerializer):

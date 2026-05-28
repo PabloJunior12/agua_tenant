@@ -1,7 +1,7 @@
 from rest_framework import routers
 from django.urls import path
 from .views import (
-    CustomerViewSet, WaterMeterViewSet, DebtRefinancingViewSet, ManzanaViewSet,CutBatchViewSet, CategoryViewSet, CashOutflowViewSet, ViaViewSet, CalleViewSet, CashBoxViewSet, CompanyViewSet,
+    CustomerViewSet, WaterMeterViewSet, ServiceChargeViewSet, DebtRefinancingViewSet, ManzanaViewSet,CutBatchViewSet, CategoryViewSet, CashOutflowViewSet, ViaViewSet, CalleViewSet, CashBoxViewSet, CompanyViewSet,
     ReadingViewSet, InvoiceViewSet, MorosidadViewSet, MeterAssignmentViewSet, ServiceCutViewSet, ConfigViewSet, DashboardSummaryAPIView, ZonaViewSet, DebtViewSet, RefinancingInstallmentViewSet, ReadingGenerationViewSet, CashConceptViewSet, DailyCashReportViewSet, ProcessPayment, ProcessPaymentYape, PaymentStatusView
 )
 
@@ -30,6 +30,7 @@ router.register('service-cut', ServiceCutViewSet)
 router.register('cut-batch', CutBatchViewSet)
 router.register('morosidad', MorosidadViewSet, basename="morosidad")
 router.register('debt-refinancing', DebtRefinancingViewSet, basename="debtrefinancing")
+router.register('service-charge', ServiceChargeViewSet)
 
 urlpatterns = [
 

@@ -35,9 +35,9 @@ from apps.tenant.utils.seed import generate_ticket
 from apps.tenant.models import Pay, ReceiptBatch
 from apps.user.models import User
 
-from .models import Customer, Manzana, CashMovement, Manzana, MeterAssignment, ServiceCut, Config, CutBatch, DailyCashReport, DebtRefinancing, DebtRefinancingDetail, RefinancingInstallment, WaterMeter, CashOutflow, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
+from .models import Customer, Manzana, CashMovement, ServiceCharge, Manzana, MeterAssignment, ServiceCut, Config, CutBatch, DailyCashReport, DebtRefinancing, DebtRefinancingDetail, RefinancingInstallment, WaterMeter, CashOutflow, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
 from .serializers import (
-    CustomerSerializer, ServiceCutSerializer, DebtRefinancingSerializer, ManzanaSerializer, MeterAssignmentSerializer, MorosidadSerializer, CutBatchSerializer, WaterMeterSerializer, RefinancingInstallmentSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
+    CustomerSerializer, ServiceCutSerializer, ServiceChargeSerializer, DebtRefinancingSerializer, ManzanaSerializer, MeterAssignmentSerializer, MorosidadSerializer, CutBatchSerializer, WaterMeterSerializer, RefinancingInstallmentSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
     ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ConfigSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer)
 
 from .utils import get_catastral_queryset, get_full_catastral_queryset, calcular_igv_simple, obtener_calle, obtener_billing_type, get_morosos_queryset, ReadingFilter, DebtFilter, to_none_if_empty, clean_value, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
@@ -57,6 +57,13 @@ class CustomPagination(PageNumberPagination):
     page_size = 5  # Número de registros por página
     page_size_query_param = 'page_size'  # Permite cambiar el tamaño desde la URL
     max_page_size = 100  # Tamaño máximo permitido
+
+class ServiceChargeViewSet(viewsets.ModelViewSet): 
+    
+    queryset = ServiceCharge.objects.all().order_by('-id')
+    serializer_class = ServiceChargeSerializer
+    filter_backends = [DjangoFilterBackend,filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['customer', 'status']  
 
 class ZonaViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
@@ -2936,6 +2943,28 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         sub_total_amount = total_water + total_sewer + total_igv
         total_amount = sub_total_amount + total_fixed_charge + total_clean
 
+        if customer.has_meter:
+
+            reading = None
+
+        else:
+
+            # Crear lectura asociada (sin procesos automáticos)
+            reading = Reading(
+                customer=customer,
+                period=normalized_period,
+                current_reading=Decimal("0.000"),
+                has_meter=customer.has_meter,
+                total_water=total_water,
+                total_sewer=total_sewer,
+                total_fixed_charge=total_fixed_charge,
+                total_clean=total_clean,
+                total_igv=total_igv,
+                sub_total_amount=sub_total_amount,
+                total_amount=total_amount,
+            )
+            reading.save(skip_process=True)
+
 
         # ✅ Crear deuda vinculada
         debt = Debt.objects.create(
@@ -2943,6 +2972,7 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             period=normalized_period,
             amount=total_amount,
             description=f"Deuda del periodo {period.strftime('%Y-%m')}",
+            reading=reading,  # 👈 vinculación directa
         )
 
         concept_map = {

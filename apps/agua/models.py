@@ -234,8 +234,6 @@ class CashConcept(models.Model):
     def __str__(self):
         return self.name
 
-    def __str__(self):
-        return f"{self.code} - {self.name} ({self.get_type_display()})"
   
 class Customer(models.Model):
 
@@ -820,6 +818,8 @@ class DebtDetail(models.Model):
 
 # CHILCA
 
+
+
 class DebtRefinancing(models.Model):
 
     customer = models.ForeignKey(Customer,on_delete=models.CASCADE, related_name="refinancings")
@@ -1210,3 +1210,33 @@ class Config(models.Model):
         null=True,
         verbose_name="Mercado Pago Access Token"
     )
+
+class ServiceCharge(models.Model):
+
+    STATUS_CHOICES = (
+        ('pending', 'Pendiente'),
+        ('paid', 'Pagado'),
+    )
+
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='invoice_service_charges', null=True , blank=True)
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
+
+    concept = models.ForeignKey(
+        CashConcept,
+        on_delete=models.PROTECT
+    )
+
+    description = models.CharField(max_length=255)
+
+    amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pending'
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
