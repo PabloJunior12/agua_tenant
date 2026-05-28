@@ -973,17 +973,3 @@ class DebtRefinancingSerializer(serializers.ModelSerializer):
         )['total']
 
         return total or 0
-
-# class PaymentMethodSerializer(serializers.ModelSerializer):
-
-#     class Meta:
-
-#         model = PaymentMethod
-#         fields = '__all__'
-
-# class YearSerializer(serializers.ModelSerializer):
-
-#     class Meta:
-        
-#         model = Year
-#         fields = '__all__'

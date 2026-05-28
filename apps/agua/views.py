@@ -2936,21 +2936,6 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         sub_total_amount = total_water + total_sewer + total_igv
         total_amount = sub_total_amount + total_fixed_charge + total_clean
 
-        # Crear lectura asociada (sin procesos automáticos)
-        reading = Reading(
-            customer=customer,
-            period=normalized_period,
-            current_reading=Decimal("0.000"),
-            has_meter=customer.has_meter,
-            total_water=total_water,
-            total_sewer=total_sewer,
-            total_fixed_charge=total_fixed_charge,
-            total_clean=total_clean,
-            total_igv=total_igv,
-            sub_total_amount=sub_total_amount,
-            total_amount=total_amount,
-        )
-        reading.save(skip_process=True)
 
         # ✅ Crear deuda vinculada
         debt = Debt.objects.create(
@@ -2958,7 +2943,6 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             period=normalized_period,
             amount=total_amount,
             description=f"Deuda del periodo {period.strftime('%Y-%m')}",
-            reading=reading,  # 👈 vinculación directa
         )
 
         concept_map = {
@@ -3199,7 +3183,7 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         if tenant != "chilca":
             raise ValidationError(
-                "Refinanciación no disponible"
+                "Refinanciacion no disponible"
             )
 
         customer_id = request.data.get("customer_id")
@@ -3215,7 +3199,7 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         if cuotas <= 0:
             raise ValidationError(
-                "Cuotas inválidas"
+                "Cuotas invalidas"
             )
 
         debts = Debt.objects.filter(
@@ -3227,7 +3211,7 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         if not debts.exists():
             raise ValidationError(
-                "No hay deudas válidas"
+                "No hay deudas validas"
             )
 
         ####################################################
@@ -3386,7 +3370,7 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         return Response({
 
-            "message": "Refinanciación creada correctamente",
+            "message": "Refinanciacion creada correctamente",
 
             "subtotal": total,
 
@@ -3409,7 +3393,7 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         if cuotas <= 0:
             raise ValidationError(
-                "Cuotas inválidas"
+                "Cuotas invalidas"
             )
 
         debts = Debt.objects.filter(
@@ -3667,6 +3651,449 @@ class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
         return Response({
             "sheets": excel_file.sheet_names
+        })
+
+    # @action(detail=False, methods=['post'])
+    # def import_excel_payments(self, request):
+
+    #     file = request.FILES.get("file")
+
+    #     if not file:
+
+    #         return Response(
+    #             {"detail": "Debe subir un archivo Excel."},
+    #             status=status.HTTP_400_BAD_REQUEST
+    #         )
+
+    #     # =====================================================
+    #     # LEER EXCEL
+    #     # =====================================================
+
+    #     try:
+
+    #         df = pd.read_excel(file)
+
+    #     except Exception as e:
+
+    #         return Response(
+    #             {"detail": str(e)},
+    #             status=status.HTTP_400_BAD_REQUEST
+    #         )
+
+    #     # =====================================================
+    #     # NORMALIZAR COLUMNAS
+    #     # =====================================================
+
+    #     df.columns = [
+    #         str(col).strip().lower()
+    #         for col in df.columns
+    #     ]
+
+    #     # =====================================================
+    #     # MAPA MESES
+    #     # =====================================================
+
+    #     MONTHS = {
+    #         "enero": 1,
+    #         "febrero": 2,
+    #         "marzo": 3,
+    #         "abril": 4,
+    #     }
+
+    #     YEAR = 2026
+
+    #     # =====================================================
+    #     # CLIENTES
+    #     # =====================================================
+
+    #     customers = {
+    #         str(c.codigo): c
+    #         for c in Customer.objects.all()
+    #     }
+
+    #     # =====================================================
+    #     # DEUDAS
+    #     # =====================================================
+
+    #     debts = {}
+
+    #     for debt in Debt.objects.select_related("reading").filter(
+    #         paid=False,
+    #         is_refinanced=False
+    #     ):
+
+    #         debts[
+    #             (debt.customer_id, debt.period)
+    #         ] = debt
+
+    #     # =====================================================
+    #     # CONTADORES
+    #     # =====================================================
+
+    #     created = 0
+    #     ignored = 0
+    #     errors = []
+
+    #     debts_to_update = []
+    #     readings_to_update = []
+
+    #     # =====================================================
+    #     # RECORRER FILAS
+    #     # =====================================================
+
+    #     for index, row in df.iterrows():
+
+    #         try:
+
+    #             codigo = str(
+    #                 row.get("codigo", "")
+    #             ).replace(".0", "").strip()
+
+    #             if not codigo:
+    #                 continue
+
+    #             customer = customers.get(codigo)
+
+    #             if not customer:
+
+    #                 errors.append({
+    #                     "fila": index + 2,
+    #                     "codigo": codigo,
+    #                     "error": "Cliente no encontrado"
+    #                 })
+
+    #                 continue
+
+    #             # ==============================================
+    #             # RECORRER MESES
+    #             # ==============================================
+
+    #             for month_name, month_number in MONTHS.items():
+
+    #                 if month_name not in df.columns:
+    #                     continue
+
+    #                 value = row.get(month_name)
+
+    #                 # ==========================================
+    #                 # SI CELDA VACÍA -> NO PAGÓ
+    #                 # ==========================================
+
+    #                 if pd.isna(value):
+    #                     continue
+
+    #                 if str(value).strip() == "":
+    #                     continue
+
+    #                 period = date(
+    #                     YEAR,
+    #                     month_number,
+    #                     1
+    #                 )
+
+    #                 debt = debts.get(
+    #                     (customer.id, period)
+    #                 )
+
+    #                 if not debt:
+    #                     continue
+
+    #                 # ==========================================
+    #                 # MARCAR PAGADO
+    #                 # ==========================================
+
+    #                 debt.paid = True
+
+    #                 debts_to_update.append(debt)
+
+    #                 # ==========================================
+    #                 # LECTURA
+    #                 # ==========================================
+
+    #                 if debt.reading:
+
+    #                     debt.reading.paid = True
+
+    #                     readings_to_update.append(
+    #                         debt.reading
+    #                     )
+
+    #                 created += 1
+
+    #         except Exception as e:
+
+    #             errors.append({
+    #                 "fila": index + 2,
+    #                 "codigo": str(row.get("codigo")),
+    #                 "error": str(e)
+    #             })
+
+    #     # =====================================================
+    #     # BULK UPDATE
+    #     # =====================================================
+
+    #     if debts_to_update:
+
+    #         Debt.objects.bulk_update(
+    #             debts_to_update,
+    #             ["paid"]
+    #         )
+
+    #     if readings_to_update:
+
+    #         Reading.objects.bulk_update(
+    #             readings_to_update,
+    #             ["paid"]
+    #         )
+
+    #     # =====================================================
+    #     # RESPONSE
+    #     # =====================================================
+
+    #     return Response({
+    #         "success": True,
+    #         "pagos_importados": created,
+    #         "ignorados": ignored,
+    #         "errores": errors
+    #     })
+
+    @action(detail=False, methods=['post'])
+    def import_excel_payments(self, request):
+
+        file = request.FILES.get("file")
+
+        if not file:
+
+            return Response(
+                {"detail": "Debe subir un archivo Excel."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # =====================================================
+        # LEER EXCEL
+        # =====================================================
+
+        try:
+
+            df = pd.read_excel(file)
+
+        except Exception as e:
+
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # =====================================================
+        # NORMALIZAR COLUMNAS
+        # =====================================================
+
+        df.columns = [
+            str(col).strip().lower()
+            for col in df.columns
+        ]
+
+        # =====================================================
+        # MAPA MESES
+        # =====================================================
+
+        MONTHS = {
+            "enero": (
+                1,
+                "enero agua",
+                "enero desague"
+            ),
+            "febrero": (
+                2,
+                "febrero agua",
+                "febrero desague"
+            ),
+            "marzo": (
+                3,
+                "marzo agua",
+                "marzo desague"
+            ),
+            "abril": (
+                4,
+                "abril agua",
+                "abril desague"
+            ),
+        }
+
+        YEAR = 2026
+
+        # =====================================================
+        # CLIENTES
+        # =====================================================
+
+        customers = {
+            str(c.codigo): c
+            for c in Customer.objects.all()
+        }
+
+        # =====================================================
+        # DEUDAS
+        # =====================================================
+
+        debts = {}
+
+        for debt in Debt.objects.select_related("reading").filter(
+            paid=False,
+            is_refinanced=False
+        ):
+
+            debts[
+                (debt.customer_id, debt.period)
+            ] = debt
+
+        # =====================================================
+        # CONTADORES
+        # =====================================================
+
+        created = 0
+        ignored = 0
+        errors = []
+
+        debts_to_update = []
+        readings_to_update = []
+
+        processed = set()
+
+        # =====================================================
+        # RECORRER FILAS
+        # =====================================================
+
+        for index, row in df.iterrows():
+
+            try:
+
+                codigo = str(
+                    row.get("codigo", "")
+                ).replace(".0", "").strip()
+
+                if not codigo:
+                    continue
+
+                customer = customers.get(codigo)
+
+                if not customer:
+
+                    errors.append({
+                        "fila": index + 2,
+                        "codigo": codigo,
+                        "error": "Cliente no encontrado"
+                    })
+
+                    continue
+
+                # =================================================
+                # RECORRER MESES
+                # =================================================
+
+                for month_name, config in MONTHS.items():
+
+                    month_number, agua_col, desague_col = config
+
+                    agua_value = row.get(agua_col)
+                    desague_value = row.get(desague_col)
+
+                    # =============================================
+                    # SI AGUA O DESAGUE TIENE VALOR
+                    # => CONSIDERAR PAGADO
+                    # =============================================
+
+                    agua_paid = (
+                        pd.notna(agua_value)
+                        and str(agua_value).strip() != ""
+                    )
+
+                    desague_paid = (
+                        pd.notna(desague_value)
+                        and str(desague_value).strip() != ""
+                    )
+
+                    if not agua_paid and not desague_paid:
+                        continue
+
+                    period = date(
+                        YEAR,
+                        month_number,
+                        1
+                    )
+
+                    debt = debts.get(
+                        (customer.id, period)
+                    )
+
+                    if not debt:
+                        continue
+
+                    # =============================================
+                    # EVITAR DUPLICADOS
+                    # =============================================
+
+                    if debt.id in processed:
+                        continue
+
+                    processed.add(debt.id)
+
+                    # =============================================
+                    # MARCAR PAGADO
+                    # =============================================
+
+                    debt.paid = True
+
+                    debts_to_update.append(debt)
+
+                    # =============================================
+                    # LECTURA
+                    # =============================================
+
+                    if debt.reading:
+
+                        debt.reading.paid = True
+
+                        readings_to_update.append(
+                            debt.reading
+                        )
+
+                    created += 1
+
+            except Exception as e:
+
+                errors.append({
+                    "fila": index + 2,
+                    "codigo": str(row.get("codigo")),
+                    "error": str(e)
+                })
+
+        # =====================================================
+        # BULK UPDATE
+        # =====================================================
+
+        if debts_to_update:
+
+            Debt.objects.bulk_update(
+                debts_to_update,
+                ["paid"]
+            )
+
+        if readings_to_update:
+
+            Reading.objects.bulk_update(
+                readings_to_update,
+                ["paid"]
+            )
+
+        # =====================================================
+        # RESPONSE
+        # =====================================================
+
+        return Response({
+            "success": True,
+            "pagos_importados": created,
+            "ignorados": ignored,
+            "errores": errors
         })
 
 class CashConceptViewSet(TenantSafeMixin, viewsets.ModelViewSet):

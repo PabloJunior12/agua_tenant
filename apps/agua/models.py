@@ -858,6 +858,18 @@ class DebtRefinancing(models.Model):
 
     paid = models.BooleanField(default=False)
 
+    initial_payment = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0
+    )
+
+    original_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0
+    )
+
 class DebtRefinancingDetail(models.Model):
 
     refinancing = models.ForeignKey(
@@ -866,7 +878,12 @@ class DebtRefinancingDetail(models.Model):
         related_name="details"
     )
 
-    debt = models.ForeignKey(Debt, on_delete=models.PROTECT)
+    debt = models.ForeignKey(
+        Debt,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True
+    )
 
 class RefinancingInstallment(models.Model):
 
@@ -1193,21 +1210,3 @@ class Config(models.Model):
         null=True,
         verbose_name="Mercado Pago Access Token"
     )
-
-# class Year(models.Model):
-
-#     """
-#     Representa un año (ej. 2025) para que el usuario seleccione en cuál trabajar.
-#     Puedes añadir campos extra si quieres manejar más información.
-#     """
-#     year = models.PositiveSmallIntegerField(unique=True)
-#     # Ejemplo: bandera para saber si está activo o cerrado
-#     state = models.BooleanField(default=True)
-
-#     def __str__(self):
-#         return str(self.year)
-
-#     class Meta:
-#         ordering = ['year']
-#         verbose_name = "Year Period"
-#         verbose_name_plural = "Year Periods"
