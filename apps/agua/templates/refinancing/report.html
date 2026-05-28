@@ -531,6 +531,18 @@
                         {{ ref.created_at|date:"d/m/Y" }}
                     </div>
 
+                </div>
+
+                <div class="info-row">
+
+                    <div class="label">
+                        Pago Adelanto:
+                    </div>
+
+                    <div class="value">
+                        S/ {{ ref.initial_payment }}
+                    </div>
+
                     <div class="label right">
                         Total Deuda:
                     </div>
@@ -544,11 +556,31 @@
                 <div class="info-row">
 
                     <div class="label">
+                        Interés:
+                    </div>
+
+                    <div class="value">
+                        S/ {{ ref.interest_amount }}
+                    </div>
+
+                    <div class="label right">
                         Total Refinanciado:
                     </div>
 
                     <div class="value">
                         S/ {{ ref.total_amount_with_interest }}
+                    </div>
+
+                </div>
+
+                <div class="info-row">
+
+                    <div class="label">
+                        Cuotas:
+                    </div>
+
+                    <div class="value">
+                        {{ ref.installments }}
                     </div>
 
                     <div class="label right">
@@ -560,6 +592,7 @@
                     </div>
 
                 </div>
+
 
             </div>
 
@@ -633,15 +666,15 @@
                 Convenio y Forma de Pago
             </div>
 
-            Por la presente se otorga el fraccionamiento de su deuda del presente
-            contribuyente según detalles arriba mencionados, a fin que pueda
-            cumplir con sus obligaciones tributarias.
+            Por la presente se otorga el fraccionamiento de la deuda del contribuyente, conforme a los detalles anteriormente señalados, con la finalidad de facilitar el cumplimiento de sus obligaciones de pago.
 
             <br><br>
 
             El incumplimiento de 2 ó mas cuotas, la Administración se reserva
             el derecho de emitir la Resolución de Perdida de Beneficio del
             presente fraccionamiento.
+
+            Asimismo, en caso de incumplimiento, se procederá al corte del servicio de agua potable, conforme a las disposiciones administrativas vigentes.
 
         </div>
 
