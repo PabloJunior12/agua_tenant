@@ -902,12 +902,25 @@ class DebtRefinancingSerializer(serializers.ModelSerializer):
 
             'customer_name',
 
+            # deuda original
+            'original_amount',
+
+            # monto refinanciado
             'total_amount',
 
+            # adelanto
+            'initial_payment',
+
+            # porcentaje interés
+            'interest_rate',
+
+            # interés total
             'interest_amount',
 
+            # total final
             'total_amount_with_interest',
 
+            # cuotas
             'installments',
 
             'paid',
