@@ -818,8 +818,6 @@ class DebtDetail(models.Model):
 
 # CHILCA
 
-
-
 class DebtRefinancing(models.Model):
 
     customer = models.ForeignKey(Customer,on_delete=models.CASCADE, related_name="refinancings")
@@ -870,21 +868,6 @@ class DebtRefinancing(models.Model):
         default=0
     )
 
-class DebtRefinancingDetail(models.Model):
-
-    refinancing = models.ForeignKey(
-        DebtRefinancing,
-        on_delete=models.CASCADE,
-        related_name="details"
-    )
-
-    debt = models.ForeignKey(
-        Debt,
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True
-    )
-
 class RefinancingInstallment(models.Model):
 
     refinancing = models.ForeignKey(
@@ -920,6 +903,21 @@ class RefinancingInstallment(models.Model):
     due_date = models.DateField()
 
     paid = models.BooleanField(default=False)
+
+class DebtRefinancingDetail(models.Model):
+
+    refinancing = models.ForeignKey(
+        DebtRefinancing,
+        on_delete=models.CASCADE,
+        related_name="details"
+    )
+
+    debt = models.ForeignKey(
+        Debt,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True
+    )
 
 class CutBatch(models.Model):
 
@@ -1010,6 +1008,12 @@ class Invoice(models.Model):
         ("gateway", "Pasarela de pagos"),
     )
 
+    REFERENCE_CHOICES = (
+        ('debt', 'Servicio de Agua'),
+        ('concept', 'Cargo por Concepto'),
+        ('fractionate', 'Cuota de Fraccionamiento'),
+    )
+
     name_optional = models.CharField(max_length=200, blank=True, null=True)
     number_optional = models.CharField(max_length=15, blank=True, null=True)
 
@@ -1017,7 +1021,7 @@ class Invoice(models.Model):
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='invoices')
     date = models.DateField(auto_now_add=True)
     total = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    reference = models.CharField(max_length=100, blank=True, null=True)  # N° operación bancaria, etc.
+    reference = models.CharField(max_length=100, choices=REFERENCE_CHOICES, default='debt')
     number_reference = models.CharField(max_length=20, blank=True, null=True) 
     notes = models.TextField(blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
@@ -1034,10 +1038,12 @@ class Invoice(models.Model):
     payment_reference = models.CharField(max_length=50, null=True, blank=True, unique=True)
 
     def cancel(self):
-        """Anula la factura y libera las deudas asociadas"""
 
+        """Anula la factura y libera las deudas asociadas"""
+        
         if self.status == "cancelled":
-            return  # ya estaba anulada
+
+           return  # ya estaba anulada
 
         # liberar deudas
         for inv_debt in self.invoice_debts.all():
@@ -1046,8 +1052,33 @@ class Invoice(models.Model):
             debt.save()
 
             if debt.reading:
-                debt.reading.paid = False
-                debt.reading.save(skip_process=True)
+              
+               debt.reading.paid = False
+               debt.reading.save(skip_process=True)
+
+        # liberar cargos adicionales
+        self.invoice_service_charges.update(
+            status='pending',
+            invoice=None
+        )
+
+        # Liberar cuotas de fraccionamiento
+        for invoice_installment in self.invoice_installments.select_related(
+            'installment',
+            'installment__refinancing'
+        ):
+
+            installment = invoice_installment.installment
+
+            installment.paid = False
+            installment.save()
+
+            refinancing = installment.refinancing
+
+            # Si se anuló una cuota, el refinanciamiento ya no puede estar pagado
+            refinancing.paid = False
+            refinancing.save()
+
 
         # solo marcar factura como anulada
         self.status = "cancelled"

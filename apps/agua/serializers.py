@@ -492,15 +492,18 @@ class InvoiceSerializer(serializers.ModelSerializer):
     invoice_installments = InvoiceInstallmentSerializer(many=True, required=False)
 
     class Meta:
+        
         model = Invoice
         fields = '__all__'
         read_only_fields = ['user_id']
 
     def to_representation(self, instance):
+
         data = super().to_representation(instance)
 
         # Agregar toda la data del cliente usando CustomerSerializer
         data['customer'] = CustomerSerializer(instance.customer).data
+        data['reference_display'] = instance.get_reference_display()
 
         return data
 

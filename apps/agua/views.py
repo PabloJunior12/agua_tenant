@@ -60,10 +60,19 @@ class CustomPagination(PageNumberPagination):
 
 class ServiceChargeViewSet(viewsets.ModelViewSet): 
     
-    queryset = ServiceCharge.objects.all().order_by('-id')
+    queryset = ServiceCharge.objects.all().order_by('-status')
     serializer_class = ServiceChargeSerializer
     filter_backends = [DjangoFilterBackend,filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['customer', 'status']  
+
+    def perform_destroy(self, instance):
+
+        if instance.status == 'paid':
+            raise ValidationError(
+                {"error" :'No se puede eliminar un cargo que ya ha sido pagado.'}
+            )
+
+        instance.delete()
 
 class ZonaViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
