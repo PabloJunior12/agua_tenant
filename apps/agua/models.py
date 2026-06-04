@@ -204,6 +204,7 @@ class CashConcept(models.Model):
         ("price_fixed_charge", "Precio cargo fijo"),
         ("price_clean", "Precio limpieza"),
         ("price_igv", "Precio Igv"),
+        ("price_maintenance", "Precio Mantenimiento"),
     )
 
     code = models.CharField(max_length=3, unique=True, null=True, blank=True)
