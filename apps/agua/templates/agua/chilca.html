@@ -274,7 +274,7 @@
 
 <body>
     {% for ctx in readings_context %}
-    {% with reading=ctx.reading grouped=ctx.grouped_debts total_previous=ctx.total_previous_debt total_general=ctx.total_general %}
+    {% with reading=ctx.reading debt=ctx.debt details=ctx.details grouped=ctx.grouped_debts total_previous=ctx.total_previous_debt total_general=ctx.total_general %}
 
     <div class="page">
         <div class="name">
@@ -304,7 +304,7 @@
         </div>
 
         <div class="codigo-catastral">
-            {{ reading.customer.provincia }} {{ reading.customer.distrito }} {{ reading.customer.sector }} {{ reading.customer.mz.id }} {{ reading.customer.predio }}
+            5 5 {{ reading.customer.sector }} {{ reading.customer.manzana.codigo }} {{ reading.customer.predio }}
         </div>
 
         <div class="consumo">
@@ -365,39 +365,44 @@
                 {% endif %}
             </div>
 
-
             <!-- FACTURACION -->
             <div class="facturacion debug">
-
                 <div class="titulo">
                     DETALLE DE FACTURACIÓN
                 </div>
-
                 <table>
-
+                    {% for item in details %}
                     <tr>
-                        <td class="label">Servicio de agua</td>
-                        <td class="amount">{{ reading.total_water }}</td>
-                    </tr>
+                        <td class="label">
+                            {{ item.concept.name }}
+                        </td>
 
+                        <td class="amount">
+                            S/ {{ item.amount }}
+                        </td>
+                    </tr>
+                    {% endfor %}
                     <tr>
-                        <td class="label">Servicio de alcantarillado</td>
-                        <td class="amount">{{ reading.total_sewer }}</td>
-                    </tr>
+                        <td class="label">
+                            Total del mes
+                        </td>
 
+                        <td class="amount">
+                            S/ {{ debt.amount }}
+                        </td>
+                    </tr>
                     <tr>
-                        <td class="label">Total del mes</td>
-                        <td class="amount">{{ reading.total_amount }}</td>
-                    </tr>
+                        <td class="label">
+                            Saldo deuda anterior
+                        </td>
 
-                    <tr>
-                        <td class="label">Saldo deuda anterior</td>
-                        <td class="amount">{{ total_previous }}</td>
+                        <td class="amount">
+                            S/ {{ total_previous }}
+                        </td>
                     </tr>
-
                 </table>
-
             </div>
+            <!-- END FACTURACION -->
 
         </div>
 

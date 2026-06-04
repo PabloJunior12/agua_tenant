@@ -40,7 +40,8 @@ from .serializers import (
     CustomerSerializer, ServiceCutSerializer, ServiceChargeSerializer, DebtRefinancingSerializer, ManzanaSerializer, MeterAssignmentSerializer, MorosidadSerializer, CutBatchSerializer, WaterMeterSerializer, RefinancingInstallmentSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
     ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ConfigSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer)
 
-from .utils import get_catastral_queryset, get_full_catastral_queryset, calcular_igv_simple, obtener_calle, obtener_billing_type, get_morosos_queryset, ReadingFilter, DebtFilter, to_none_if_empty, clean_value, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
+from .filters import ReadingFilter, DebtFilter
+from .utils import get_catastral_queryset,  get_concept_total, get_full_catastral_queryset, calcular_igv_simple, obtener_calle, obtener_billing_type, get_morosos_queryset, to_none_if_empty, clean_value, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
 from .core.mixins import TenantSafeMixin
 
 import re
@@ -312,378 +313,6 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
 
         serializer = CustomerWithDebtsSerializer(customer)
         return Response(serializer.data)
-
-    @action(detail=False, methods=['post'])
-    def import_excel_2(self, request):
-
-        file = request.FILES.get('file')
-
-        if not file:
-            return Response({'error': 'No se proporciono un archivo.'}, status=400)
-
-        try:
-            df = pd.read_excel(file, engine='openpyxl')
-        except Exception as e:
-            return Response({'error': f'Error al leer el archivo: {str(e)}'}, status=400)
-
-        df.columns = df.columns.str.strip().str.upper()
-
-        # ordenar por suministro
-        df['SUMINISTRO_ORDER'] = pd.to_numeric(
-            df['SUMINISTRO'],
-            errors='coerce'
-        )
-
-        df = df.sort_values(
-            by='SUMINISTRO_ORDER',
-            ascending=True
-        )
-
-        default_zona = Zona.objects.first()
-
-        already_installed = []
-        not_found = []
-        duplicates = []
-
-        for _, row in df.iterrows():
-
-
-            codigo = clean_value(row.get("SUMINISTRO"))
-
-            identity_document_type = 0
-            number = "00000000"
-
-            provincia = 5
-            distrito = 5
-    
-            observation = clean_value(row.get("OBSERVACIONES"))
-
-            agua = clean_value(row.get("AGUA"))
-            alcantarillado = clean_value(row.get("DESAGUE"))
-
-            is_corte = clean_value(row.get("CORTESERV"))
-
-            state = 'active'
-
-            if is_corte == "Si":
-
-               state = 'cut'
-
-            billing_type = obtener_billing_type(agua, alcantarillado)
-
-            if not codigo:
-
-                continue
-
-            # 👤 NOMBRE
-            full_name = row.get('NOMBRES Y APELLIDOS')
-
-            # 📍 DIRECCION (ya viene armada)
-            address = row.get('DIRECCION')
-            # calle = obtener_calle(address)
-      
-            # 🔌 MEDIDOR
-            meter_code = row.get('CODMEDIDOR')
-
-            meter = None
-            has_meter = False
-
-            if not pd.isna(meter_code):
-
-                meter_code = str(meter_code).strip()
-
-                # ignorar DIRECTO y DESAGUE
-                if meter_code.upper() not in ['DIRECTO', 'DESAGUE','SIN MEDIDO']:
-
-                    has_meter = True
-
-                    meter = WaterMeter.objects.filter(
-                        code=meter_code
-                    ).first()
-
-            # 🧪 TARIFA (puedes mapear si quieres)
-            tarifa = str(row.get('tarifa')).strip().upper() if row.get('tarifa') else "DOMESTICO"
-
-            if has_meter:
-
-                category = Category.objects.filter(name__icontains=tarifa).first()
-
-            else:
-
-                category = Category.objects.filter(has_meter=False).first()
-
- 
-
-            # 🚧 Evitar duplicados
-            if Customer.objects.filter(codigo=codigo).exists():
-
-                continue
-
-            customer = Customer.objects.create(
-
-                state=state,
-                codigo=codigo,
-                identity_document_type=identity_document_type,
-                number=number,
-                full_name=full_name,
-                address=address,
-                has_meter=has_meter,
-                category=category,
-
-                provincia=provincia,
-                distrito=distrito,
-
-                observation=observation,
-                billing_type=billing_type
-            )
-
-            # =====================================
-            # ASIGNAR MEDIDOR
-            # =====================================
-
-            if meter:
-
-                # verificar si ya está asignado
-                active_assignment = MeterAssignment.objects.filter(
-                    meter=meter,
-                    is_active=True
-                ).select_related('customer').first()
-
-                if not active_assignment:
-
-                    MeterAssignment.objects.create(
-                        meter=meter,
-                        customer=customer,
-                        installation_date=now().date(),
-                        is_active=True
-                    )
-
-                    meter.status = 'installed'
-                    meter.save()
-
-                else:
-
-                    # cliente que ya tiene el medidor
-                    assigned_customer = active_assignment.customer
-
-                    duplicate_message = (
-                        f"MEDIDOR DUPLICADO: "
-                        f"El medidor {meter.code} ya está asignado "
-                        f"al suministro {assigned_customer.codigo} "
-                        f"({assigned_customer.full_name})."
-                    )
-
-                    # marcar cliente como observado
-                    customer.state = 'observed'
-
-                    # concatenar observación existente
-                    if customer.observation:
-                        customer.observation += f"\n{duplicate_message}"
-                    else:
-                        customer.observation = duplicate_message
-
-                    customer.save()
-
-                    already_installed.append({
-                        "suministro": codigo,
-                        "meter": meter.code,
-                        "assigned_to": assigned_customer.codigo
-                    })
-
-            elif has_meter:
-
-                # el excel dice que tiene medidor
-                # pero no existe en banco
-                not_found.append({
-                    "suministro": codigo,
-                    "meter": meter_code
-                })
-
-        return Response({
-
-            "message": "Clientes importados correctamente",
-
-            "already_installed": already_installed,
-
-            "not_found": not_found,
-
-            "duplicates": duplicates
-
-        }, status=200)
-
-    @action(detail=False, methods=['post'])
-    def import_excel_readings(self, request):
-
-        file = request.FILES.get('file')
-
-        if not file:
-            return Response({'error': 'No se proporciono un archivo.'}, status=400)
-
-        try:
-            df = pd.read_excel(file, engine='openpyxl')
-        except Exception as e:
-            return Response({'error': f'Error al leer el archivo: {str(e)}'}, status=400)
-
-        df.columns = df.columns.str.strip().str.upper()
-
-        month_map = {
-            "LEC. ENERO": 1,
-            "LEC. FEBRERO": 2,
-            "LEC. MARZO": 3,
-        }
-
-        created = 0
-
-        with transaction.atomic():
-
-            for _, row in df.iterrows():
-
-                codigo = str(row.get('SUMINISTRO')).strip()
-                customer = Customer.objects.filter(codigo=codigo).first()
-
-                if not customer:
-                    continue
-
-                for lect_col, month in sorted(month_map.items(), key=lambda x: x[1]):
-
-                    current_reading = to_decimal_or_none(row.get(lect_col))
-
-                    if current_reading is None:
-                        continue
-
-                    period_date = date(2026, month, 1)
-
-                    # 🚫 evitar duplicados
-                    if Reading.objects.filter(customer=customer, period=period_date).exists():
-                        continue
-
-                    last_reading = Reading.objects.filter(
-                        customer=customer,
-                        period__lt=period_date
-                    ).order_by('-period').first()
-
-                    reading = Reading(
-                        customer=customer,
-                        period=period_date,
-                        current_reading=current_reading,
-                    )
-
-                    # 🔥 primer mes → consumo 0
-                    if not last_reading:
-                        # 🔍 buscar siguiente mes para calcular diferencia
-                        next_month_col = None
-                        for col, m in sorted(month_map.items(), key=lambda x: x[1]):
-                            if m > month:
-                                next_month_col = col
-                                break
-
-                        next_reading = to_decimal_or_none(row.get(next_month_col)) if next_month_col else None
-
-                        if next_reading is not None:
-                            diff = next_reading - current_reading
-                            reading.previous_reading = current_reading - diff
-                        else:
-                            # fallback si no hay siguiente mes
-                            reading.previous_reading = current_reading
-
-                    reading.save()
-                    created += 1
-
-        # ✅ 🔥 ESTO FALTABA
-        return Response({
-            "message": "Importación completada",
-            "readings_created": created
-        }, status=status.HTTP_201_CREATED)
-
-    @action(detail=False, methods=['post'])
-    def importar_catastro(self, request):
-
-        archivo = request.FILES.get('file')
-
-        if not archivo:
-            return Response(
-                {'error': 'Debe subir un Excel'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-
-            df = pd.read_excel(archivo)
-
-            actualizados = 0
-            manzanas_creadas = 0
-            errores = []
-
-            with transaction.atomic():
-
-                for index, row in df.iterrows():
-
-                    try:
-
-                        # EXCEL
-                        supply_number = clean_value(row['SUMINISTRO'])
-                        # print(supply_number)
-                        zona_codigo = clean_value(row['cr3'])
-                        manzana_codigo = clean_value(row['cr4'])
-                        predio_codigo = clean_value(row['cr5'])
-
-                        # ZONA
-                        zona = Zona.objects.filter(
-                            codigo=zona_codigo
-                        ).first()
-                    
-                        # MANZANA
-                        manzana = Manzana.objects.filter(
-                            zona=zona,
-                            codigo=manzana_codigo
-                        ).first()
-
-                        # CLIENTE
-                        customer = Customer.objects.filter(
-                            codigo=supply_number
-                        ).first()
-
-                        if not customer:
-                            errores.append(
-                                f"Fila {index + 2}: Cliente {supply_number} no existe"
-                            )
-                            continue
-
-                        # ACTUALIZAR
-                        customer.zona = zona
-                        customer.manzana = manzana
-
-                        # legacy
-                        customer.sector = zona.codigo
-                       
-                        customer.predio = predio_codigo
-
-                        customer.mz = None
-                        customer.lote = None
-
-                        customer.save()
-
-                        actualizados += 1
-
-                    except Exception as e:
-
-                        errores.append(
-                            f"Fila {index + 2}: {str(e)}"
-                        )
-
-            return Response({
-                'message': 'Importación completada',
-                'clientes_actualizados': actualizados,
-                'manzanas_creadas': manzanas_creadas,
-                'errores': errores[:20]
-            })
-
-        except Exception as e:
-
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_BAD_REQUEST
-            )
 
     @action(detail=False, methods=["get"], url_path='report/debt')
     def report(self,request):
@@ -2388,25 +2017,59 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def receipt(self, request, pk=None, **kwargs):
-        """
-        Generar PDF de un solo recibo (para pruebas o impresion individual)
-        """ 
-    
+
         tenant = request.tenant.schema_name
-        reading = Reading.objects.filter(customer_id=pk).order_by('-period').first()
-        debt = Debt.objects.filter(customer_id=pk).order_by('-period').first()
+        company = Company.objects.first()
+
+        reading_generation = ReadingGeneration.objects.order_by('-period').first()
+ 
+        if not reading_generation:
+           
+           return Response({"error": "No existe una generación de lecturas"}, status=404)
+
+        current_period = reading_generation.period
+
+        reading = Reading.objects.filter(
+            customer_id=pk,
+            period=current_period
+        ).first()
+
+        debt = Debt.objects.filter(
+            customer_id=pk,
+            period=current_period
+        ).first()
+
         if not reading:
 
             return Response({"error": "No hay lecturas registradas"}, status=404)
         
-        company = Company.objects.first()
+        # conceptos que se deben mostrar en el recibo
+        master_concepts = CashConcept.objects.filter(is_master_view=True,state=True).order_by("id")
 
+        # convertir detalles de deuda a diccionario
+        detail_map = {
+            detail.concept_id: detail.amount
+            for detail in debt.details.all()
+        }
+
+        receipt_details = []
+
+        for concept in master_concepts:
+
+            receipt_details.append({
+                "concept": concept,
+                "amount": detail_map.get(concept.id, 0)
+            })
 
         # Ruta al logo según el RUC
         logo_path = None
-        if company and company.ruc:
-            logo_path = request.build_absolute_uri(f"/media/{company.ruc}.jpeg")
 
+        if company and company.ruc:
+           logo_path = request.build_absolute_uri(f"/media/{company.ruc}.jpeg")
+
+        ###################################################### 
+        #               DEUDAS ANTERIORES       
+        ######################################################
 
         # obtener deudas anteriores no pagadas
         previous_debts = Debt.objects.filter(
@@ -2435,20 +2098,26 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             })
 
         grouped_debts.sort(key=lambda x: x["year"], reverse=True)
-
         total_previous_debt = previous_debts.aggregate(total=Sum("amount"))["total"] or 0
-        total_general = debt.amount + total_previous_debt
 
-        # 🚀 armamos la misma estructura que en el masivo
+
+        if debt.paid:
+
+            total_general = total_previous_debt
+
+        else:
+
+            total_general = debt.amount + total_previous_debt
+
+        # armamos la misma estructura que en el masivo
         readings_context = [{
-            "debt" : debt,
+            "debt": debt,
+            "details": receipt_details,
             "reading": reading,
             "grouped_debts": grouped_debts,
             "total_previous_debt": total_previous_debt,
             "total_general": total_general,
         }]
-
-        print(readings_context)
 
         if tenant == 'chilca':
 
@@ -2519,46 +2188,51 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         period_str = request.data.get("period")
 
         if not period_str:
+            
             return Response({"error": "Falta el periodo (YYYY-MM)"}, status=400)
 
         try:
+
             period_date = datetime.strptime(period_str + "-01", "%Y-%m-%d").date()
+
         except ValueError:
+
             return Response({"error": "Formato inválido de periodo"}, status=400)
 
         # Validar si ya existe una generación para ese periodo
         if ReadingGeneration.objects.filter(period=period_date).exists():
-            return Response({"error": f"Ya se generaron lecturas para {period_str}."}, status=400)
 
-        config = Config.objects.first()
-        customers = Customer.objects.filter(has_meter=False, state='active')
+           return Response({"error": f"Ya se generaron lecturas para {period_str}."}, status=400)
+
+        customers = Customer.objects.filter(has_meter=False, state__in=['active', 'inactive'])
+
         created = 0
         skipped_existing = 0
         skipped_paid = 0
 
         for customer in customers:
+
             # Verificar si ya tiene una lectura para ese periodo
             existing_reading = Reading.objects.filter(customer=customer, period=period_date).first()
+
             if existing_reading:
+
                 skipped_existing += 1
                 continue
 
             # Verificar si ya tiene una deuda pagada de ese periodo
             if Debt.objects.filter(customer=customer, period=period_date, paid=True).exists():
+
                 skipped_paid += 1
                 continue
 
             tariff = customer.category
 
-            if config.add_igv_category:
-              total_igv = calcular_igv_simple(tariff.price_water + tariff.price_sewer)
-            else:
-              total_igv = Decimal('0.00')
-
-            sub_total_amount = tariff.price_water + tariff.price_sewer + total_igv
+            sub_total_amount = tariff.price_water + tariff.price_sewer
 
             # Crear lectura
             Reading.objects.create(
+
                 customer=customer,
                 period=period_date,
                 previous_reading=0,
@@ -2566,11 +2240,9 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 consumption=0,
                 total_water=tariff.price_water,
                 total_sewer=tariff.price_sewer,
-                total_fixed_charge=tariff.price_fixed_charge,
-                total_clean=tariff.price_clean,
-                total_igv=total_igv,
+     
                 sub_total_amount=sub_total_amount,
-                total_amount=sub_total_amount + tariff.price_fixed_charge + tariff.price_clean,
+                total_amount=sub_total_amount,
                 paid=False,
                 date_of_issue=request.data.get("date_of_issue"),
                 date_of_due=request.data.get("date_of_due"),
@@ -2629,6 +2301,7 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             "lecturas_eliminadas": deleted_count
         }, status=204)
 
+    # RECIBOS POR CALLE
     @action(detail=False, methods=['get'])
     def download_all_receipts(self, request):
         """
@@ -2649,7 +2322,8 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             abs_logo_path = os.path.join(settings.MEDIA_ROOT, f"{company.ruc}.jpeg")
 
             if os.path.exists(abs_logo_path):
-                logo_path = Path(abs_logo_path).as_uri()
+
+               logo_path = Path(abs_logo_path).as_uri()
 
 
         if not month:
@@ -2667,6 +2341,9 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             period__month=period.month
         ).select_related("customer", "customer__calle")
 
+        # conceptos que se deben mostrar en el recibo
+        master_concepts = CashConcept.objects.filter(is_master_view=True,state=True).order_by("id")
+
         # 🔹 filtro por calle (opcional)
         calle = None
         if calle_id:
@@ -2681,9 +2358,30 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             )
 
         all_readings_context = []
-        for reading in readings:
 
-            # obtener deudas anteriores no pagadas
+        for reading in readings:
+             
+            receipt_details = []
+
+            debt = Debt.objects.filter( customer_id=reading.customer_id, period=reading.period).first()
+
+            if not debt:
+               
+               continue
+        
+            # convertir detalles de deuda a diccionario
+            detail_map = {
+                detail.concept_id: detail.amount
+                for detail in debt.details.all()
+            }
+
+            for concept in master_concepts:
+
+                receipt_details.append({
+                    "concept": concept,
+                    "amount": detail_map.get(concept.id, 0)
+                })
+                    # obtener deudas anteriores no pagadas
             previous_debts = Debt.objects.filter(
                 customer=reading.customer,
                 paid=False,
@@ -2712,9 +2410,19 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             grouped_debts.sort(key=lambda x: x["year"], reverse=True)
 
             total_previous_debt = previous_debts.aggregate(total=Sum("amount"))["total"] or 0
-            total_general = reading.total_amount + total_previous_debt
+
+
+            if debt.paid:
+
+                total_general = total_previous_debt
+
+            else:
+                
+                total_general = debt.amount + total_previous_debt
 
             all_readings_context.append({
+                "debt": debt,
+                "details": receipt_details,
                 "reading": reading,
                 "grouped_debts": grouped_debts,
                 "total_previous_debt": total_previous_debt,
@@ -2749,6 +2457,7 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         return response
  
+    # POR ZONA / TICKET
     @action(detail=True, methods=['post'])
     def generate_receipts(self, request, pk=None):
 
@@ -2905,62 +2614,125 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     @transaction.atomic
     def create(self, request, *args, **kwargs):
 
-        config = Config.objects.first()
+        tenant = request.tenant.schema_name
         data = request.data
+
         customer_id = data.get("customer")
         period_str = data.get("period")
 
+        # Validaciones básicas
         if not customer_id or not period_str:
-            raise ValidationError("Debe enviar 'customer' y 'period'.")
+            raise ValidationError(
+                "Debe enviar 'customer' y 'period'."
+            )
 
-        period = date.fromisoformat(period_str)
-        normalized_period = date(period.year, period.month, 1)
+        # Normalizar periodo al primer día del mes
+        try:
+
+            period = date.fromisoformat(period_str)
+
+        except ValueError:
+
+            raise ValidationError(
+                "El formato del periodo es inválido."
+            )
+
+        normalized_period = date(
+            period.year,
+            period.month,
+            1
+        )
 
         # Obtener cliente
         try:
-            customer = Customer.objects.get(id=customer_id)
+
+            customer = Customer.objects.select_related(
+                "category"
+            ).get(id=customer_id)
+
         except Customer.DoesNotExist:
-            raise ValidationError("El cliente no existe.")
 
-        # ⚠️ Evitar duplicados
-        if Debt.objects.filter(customer=customer, period=normalized_period).exists():
-            raise ValidationError("Ya existe una deuda para este cliente y periodo.")
+            raise ValidationError(
+                "El cliente no existe."
+            )
 
-    
-        # Calcular montos base
-        total_fixed_charge = customer.category.price_fixed_charge
-        total_water = customer.category.price_water
-        total_sewer = customer.category.price_sewer
-        total_clean = customer.category.price_clean
-        
-        billing_type = (customer.billing_type or 'both')
+        # Evitar duplicados
+        if Debt.objects.filter(
+            customer=customer,
+            period=normalized_period
+        ).exists():
 
+            raise ValidationError(
+                "Ya existe una deuda para este cliente y periodo."
+            )
+
+        # =========================
+        # MONTOS BASE
+        # =========================
+
+        total_water = customer.category.price_water or Decimal("0.00")
+        total_sewer = customer.category.price_sewer or Decimal("0.00")
+
+        billing_type = customer.billing_type or "both"
+
+        # Ajustar según tipo de facturación
         if billing_type == "water":
 
-            total_sewer = Decimal('0.00')
+            total_sewer = Decimal("0.00")
 
         elif billing_type == "sewer":
 
-            total_water = Decimal('0.00')
+            total_water = Decimal("0.00")
 
-        if config.add_igv_category:
-           
-           total_igv = calcular_igv_simple(total_water + total_sewer)
+        # =========================
+        # CONCEPTOS ADICIONALES
+        # =========================
 
-        else:
-           
-           total_igv = Decimal('0.00')
+        price_clean = get_concept_total("price_clean")
+        price_fixed_charge = get_concept_total("price_fixed_charge")
+        price_maintenance = get_concept_total( "price_maintenance")
 
-        sub_total_amount = total_water + total_sewer + total_igv
-        total_amount = sub_total_amount + total_fixed_charge + total_clean
+        # =========================
+        # LÓGICA PERSONALIZADA TENANT
+        # =========================
 
-        if customer.has_meter:
+        if tenant == "pangoa":
 
-            reading = None
+            if customer.state == "inactive":
 
-        else:
+                total_water = Decimal("0.00")
+                total_sewer = Decimal("0.00")
 
-            # Crear lectura asociada (sin procesos automáticos)
+            else:
+
+                price_fixed_charge = 0
+                price_maintenance = 0
+
+        # =========================
+        # TOTALES
+        # =========================
+
+        total_amount_reading = (
+            total_water +
+            total_sewer
+        )
+
+        total_amount_debt = (
+            total_amount_reading +
+            price_clean +
+            price_fixed_charge +
+            price_maintenance
+        )
+
+        # =========================
+        # CREAR LECTURA
+        # =========================
+
+        reading = None
+
+        # Crear lectura SOLO si tiene no medidor
+        if not customer.has_meter:
+
             reading = Reading(
                 customer=customer,
                 period=normalized_period,
@@ -2968,51 +2740,68 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 has_meter=customer.has_meter,
                 total_water=total_water,
                 total_sewer=total_sewer,
-                total_fixed_charge=total_fixed_charge,
-                total_clean=total_clean,
-                total_igv=total_igv,
-                sub_total_amount=sub_total_amount,
-                total_amount=total_amount,
+                sub_total_amount=total_amount_reading,
+                total_amount=total_amount_reading,
             )
+
             reading.save(skip_process=True)
 
+        # =========================
+        # CREAR DEUDA
+        # =========================
 
-        # ✅ Crear deuda vinculada
         debt = Debt.objects.create(
             customer=customer,
             period=normalized_period,
-            amount=total_amount,
-            description=f"Deuda del periodo {period.strftime('%Y-%m')}",
-            reading=reading,  # 👈 vinculación directa
+            amount=total_amount_debt,
+            description=(
+                f"Deuda del periodo "
+                f"{period.strftime('%Y-%m')}"
+            ),
+            reading=reading,
         )
+
+        # =========================
+        # DETALLE DE CONCEPTOS
+        # =========================
 
         concept_map = {
+
             "price_water": total_water,
             "price_sewer": total_sewer,
-            "price_fixed_charge": total_fixed_charge,
-            "price_clean": total_clean,
-            "price_igv": total_igv,
+
+            "price_clean": price_clean,
+            "price_fixed_charge": price_fixed_charge,
+            "price_maintenance": price_maintenance,
         }
 
-        concepts = CashConcept.objects.filter(
-            system_key__in=concept_map.keys()
-        )
+        concepts = {
+            concept.system_key: concept
+            for concept in CashConcept.objects.filter(
+                system_key__in=concept_map.keys()
+            )
+        }
 
-        concept_dict = {c.system_key: c for c in concepts}
+        for system_key, amount in concept_map.items():
 
-        for key, amount in concept_map.items():
-
-            if amount > 0 and key in concept_dict:
+            if amount > 0:
 
                 DebtDetail.objects.create(
                     debt=debt,
-                    concept=concept_dict[key],
+                    concept=concepts[system_key],
                     amount=amount
                 )
 
-        # Respuesta
+        # =========================
+        # RESPUESTA
+        # =========================
+
         serializer = self.get_serializer(debt)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED
+        )
     
     @transaction.atomic
     def update(self, request, *args, **kwargs):

@@ -76,7 +76,7 @@
 
 <body>
     {% for ctx in readings_context %}
-    {% with reading=ctx.reading grouped=ctx.grouped_debts total_previous=ctx.total_previous_debt total_general=ctx.total_general %}
+    {% with reading=ctx.reading debt=ctx.debt details=ctx.details grouped=ctx.grouped_debts total_previous=ctx.total_previous_debt total_general=ctx.total_general %}
 
     <!-- Cabecera -->
     <div class="row">
@@ -135,7 +135,7 @@
                 </tr>
                 <tr>
                     <td><strong>Servicio:</strong></td>
-                    <td>Agua y Desagüe</td>
+                    <td>{{ reading.customer.get_billing_type_display }}</td>
                 </tr>
                 <tr>
                     <td><strong>Tipo De Facturación:</strong></td>
@@ -188,25 +188,16 @@
         <div class="col">
             <h3 class="text-center text-uppercase">Detalle de facturación</h3>
             <table class="table table-sm">
+
+                {% for item in details %}
                 <tr>
-                    <th>Servicio de agua</th>
-                    <td class="text-end">{{ reading.total_water }}</td>
+                    <th>{{ item.concept.name }}</th>
+                    <td class="text-end">{{ item.amount }}</td>
                 </tr>
-                <tr>
-                    <th>Servicio de alcantarillado</th>
-                    <td class="text-end">{{ reading.total_sewer }}</td>
-                </tr>
-                <tr>
-                    <th>Mantenimiento</th>
-                    <td class="text-end">0.00</td>
-                </tr>
-                <tr>
-                    <th>Cargo fijo</th>
-                    <td class="text-end">{{ reading.total_fixed_charge }}</td>
-                </tr>
+                {% endfor %}
                 <tr>
                     <th>Total del mes</th>
-                    <td class="text-end">{{ reading.total_amount }}</td>
+                    <td class="text-end">{{ debt.amount }}</td>
                 </tr>
                 <tr>
                     <th>Saldo deuda anterior</th>

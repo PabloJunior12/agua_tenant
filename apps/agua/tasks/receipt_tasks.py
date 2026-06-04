@@ -1,33 +1,33 @@
 from apps.tenant.models import ReceiptBatch
-from apps.agua.models import Reading, Debt, Company, Zona
+from apps.agua.models import Reading, Debt, Company, Zona, CashConcept
 from django_tenants.utils import schema_context
 from django.db.models import Count
-from django.template.loader import render_to_string, get_template
+from django.template.loader import render_to_string
 from django.db.models import Prefetch
 from django.utils.timezone import now
 from weasyprint import HTML
 from decimal import Decimal
 import os
-from django.template.loader import render_to_string, get_template
 from collections import defaultdict
 from babel.dates import format_date
 from datetime import date
 from django.conf import settings
 from pathlib import Path
-import base64
+
 from django.utils.text import slugify
 
 def generate_receipts_task(batch_id, schema_name):
 
     batch = ReceiptBatch.objects.get(id=batch_id)
-
+    
     with schema_context(batch.tenant):
+
+        master_concepts = CashConcept.objects.filter(is_master_view=True,state=True).order_by("id")
 
         batch.status = "processing"
         batch.save(update_fields=["status"])
 
-        company = Company.objects.first()
-        
+        company = Company.objects.first()        
         logo_path = None
 
         if company and company.ruc:
@@ -110,7 +110,7 @@ def generate_receipts_task(batch_id, schema_name):
 
                 chunk = queryset[offset:offset + chunk_size]
 
-                html = build_html(chunk, company, logo_path, zona.name, schema_name)
+                html = build_html(chunk, company, logo_path, zona.name, schema_name, master_concepts)
 
                 file_path = os.path.join(base_path, f"parte_{part}.pdf")
 
@@ -131,11 +131,33 @@ def generate_receipts_task(batch_id, schema_name):
         batch.finished_at = now()
         batch.save(update_fields=["status", "finished_at"])
 
-def build_html(readings, company, logo_path, zona, schema_name):
+def build_html(readings, company, logo_path, zona, schema_name, master_concepts):
 
     all_data = []
-  
+    all_readings_context = []
+   
     for reading in readings:
+
+        receipt_details = []
+        
+        debt = Debt.objects.filter(customer=reading.customer, period=reading.period).first()
+
+        if not debt:
+               
+           continue
+
+        detail_map = {
+            detail.concept_id: detail.amount
+            for detail in debt.details.all()
+        }
+
+        for concept in master_concepts:
+
+            receipt_details.append({
+              "concept": concept,
+              "amount": detail_map.get(concept.id, 0)
+            })
+
         debts = getattr(reading.customer, "previous_debts", [])
 
         yearly_data = defaultdict(
@@ -172,9 +194,11 @@ def build_html(readings, company, logo_path, zona, schema_name):
             Decimal("0.00")
         )
 
-        total_general = reading.total_amount + total_previous_debt
+        total_general = debt.amount + total_previous_debt
 
         all_data.append({
+            "debt": debt,
+            "details": receipt_details,
             "reading": reading,
             "grouped_debts": grouped_debts,
             "total_previous_debt": total_previous_debt,

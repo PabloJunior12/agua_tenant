@@ -432,14 +432,16 @@ class ReadingSerializer(serializers.ModelSerializer):
         return data
 
 class ReadingGenerationSerializer(serializers.ModelSerializer):
+
     created_by_name = serializers.SerializerMethodField()
 
     class Meta:
+
         model = ReadingGeneration
-        # fields = ["id", "period", "created_at", "created_by_name", "total_generated", "notes"]
         fields = '__all__'
 
     def get_created_by_name(self, obj):
+        
         return obj.created_by.get_username() if obj.created_by else "Sistema"
 
 class InvoiceDebtSerializer(serializers.ModelSerializer):

@@ -1,12 +1,12 @@
 
-from apps.base.models import BaseModel
 from decimal import Decimal
-from datetime import timedelta, date
-from dateutil.relativedelta import relativedelta
+from datetime import  date
+
 from django.core.exceptions import ValidationError
 from django.db import models, connection
 from django.utils.timezone import now
-from django.conf import settings
+
+from .utils import get_concept_total
 
 class Company(models.Model):
 
@@ -234,7 +234,6 @@ class CashConcept(models.Model):
     def __str__(self):
         return self.name
 
-  
 class Customer(models.Model):
 
     CONNECTION_TYPE_NEW = 'new'
@@ -265,7 +264,6 @@ class Customer(models.Model):
 
         # CHILCA
 
-        ("observed", "Observado"),
         ("cut", "Cortado"),
         ("low", "Baja"),
         
@@ -281,8 +279,9 @@ class Customer(models.Model):
     
     identity_document_type = models.IntegerField(default=1)
     full_name = models.CharField(max_length=200)
-    number = models.CharField(max_length=15, blank=True, null=True)  # Ya no unique
+    number = models.CharField(max_length=15, blank=True, null=True)
     address = models.CharField(max_length=255, null=True, blank=True)
+    reference_address = models.CharField(max_length=255, null=True, blank=True)
     has_meter = models.BooleanField(default=True)
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="customers")
     calle = models.ForeignKey(Calle, on_delete=models.PROTECT, null=True)
@@ -314,8 +313,9 @@ class Customer(models.Model):
     nro = models.CharField(max_length=15, blank=True, null=True)
 
     state = models.CharField(max_length=15, choices=ESTADO_CHOICES, default="active")
-
     status = models.BooleanField(default=True)
+
+    phone = models.CharField(max_length=15, blank=True, null=True)
 
     # PANGOA
 
@@ -382,14 +382,8 @@ class Reading(models.Model):
 
     customer = models.ForeignKey('Customer', related_name='readings', on_delete=models.CASCADE)
 
-    meter = models.ForeignKey(   # 👈 CLAVE
-        WaterMeter,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True
-    )
+    meter = models.ForeignKey(WaterMeter, on_delete=models.SET_NULL, null=True, blank=True)
 
-    # Usas este campo como "mes facturado"
     period = models.DateField()
 
     # Fechas automaticas
@@ -397,29 +391,15 @@ class Reading(models.Model):
     date_of_due = models.DateField(null=True)
     date_of_cute = models.DateField(null=True)
 
-    # (Opcionales, si deseas registrarlos)
-    period_start = models.DateField(null=True)
-    period_end = models.DateField(null=True)
-
     current_reading = models.DecimalField(max_digits=10, decimal_places=3)
     previous_reading = models.DecimalField(max_digits=10, decimal_places=3, default=0.000)
     consumption = models.DecimalField(max_digits=10, decimal_places=3, default=0.000)
 
-    status = models.CharField(
-        max_length=20,
-        choices=READING_STATUS,
-        default='normal'
-    )
-
+    status = models.CharField(max_length=20, choices=READING_STATUS, default='normal')
     observation = models.TextField(blank=True, null=True)
-
-    igv = models.IntegerField(default=18)
 
     total_water = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     total_sewer = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    total_clean = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    total_fixed_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    total_igv = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
 
     sub_total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00) 
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
@@ -436,11 +416,6 @@ class Reading(models.Model):
     def __str__(self):
 
         return f"{self.customer.full_name} - {self.period.strftime('%Y-%m')}"
-
-    def calcular_igv_simple(self, monto):
- 
-        igv = monto * Decimal('0.18')  # Usar Decimal, no float
-        return round(igv, 2)
 
     # -------------------------------
     # Cálculos de consumo y tarifas
@@ -576,9 +551,9 @@ class Reading(models.Model):
 
     def calculate_total(self):
 
-        tariff = self.customer.category
-        config = Config.objects.first()
+        tenant = connection.schema_name
 
+        tariff = self.customer.category
         billing_type = (self.customer.billing_type or 'both')
 
         # Valores base
@@ -610,15 +585,7 @@ class Reading(models.Model):
             water = tariff.price_water
             sewer = tariff.price_sewer or Decimal('0.00')
 
-        # =========================
-        # DESAGÜE
-        # =========================
-     
 
-        # =========================
-        # 🎯 LÓGICA SOLO PARA CHILCA
-        # =========================
-   
         if billing_type == "water":
 
             sewer = Decimal('0.00')
@@ -627,30 +594,23 @@ class Reading(models.Model):
 
             water = Decimal('0.00')
 
-            # both = normal
+
+        if tenant == "pangoa":
+
+            if self.customer.state == "inactive":
+
+                water = Decimal("0.00")
+                sewer = Decimal("0.00")
 
         # =========================
         # ASIGNACIÓN FINAL
         # =========================
+
         self.total_water = water
         self.total_sewer = sewer
-        self.total_fixed_charge = tariff.price_fixed_charge or Decimal('0.00')
-        self.total_clean = tariff.price_clean or Decimal('0.00')
 
-        subtotal = self.total_water + self.total_sewer
-
-        if config.add_igv_category:
-            self.total_igv = self.calcular_igv_simple(subtotal)
-        else:
-            self.total_igv = Decimal('0.00')
-
-        self.sub_total_amount = subtotal + self.total_igv
-
-        self.total_amount = (
-            self.sub_total_amount +
-            self.total_clean +
-            self.total_fixed_charge
-        )
+        self.sub_total_amount = self.total_water + self.total_sewer
+        self.total_amount = self.sub_total_amount 
 
         return self.total_amount
 
@@ -664,12 +624,26 @@ class Reading(models.Model):
 
         normalized_period = date(self.period.year, self.period.month, 1)
 
+        tenant = connection.schema_name
+
+        price_clean = get_concept_total('price_clean')
+        price_fixed_charge = get_concept_total('price_fixed_charge')
+        price_maintenance = get_concept_total('price_maintenance')
+
+        if tenant == "pangoa":
+
+            if self.customer.state != "inactive":
+
+               price_maintenance = 0
+
+        total_amount = self.total_amount + price_clean + price_fixed_charge + price_maintenance
+
         debt, created = Debt.objects.get_or_create(
             customer=self.customer,
             period=normalized_period,
             defaults={
                 "reading": self,
-                "amount": self.total_amount,
+                "amount": total_amount,
                 "description": "Deuda por consumo de agua/desagüe",
             }
         )
@@ -679,38 +653,40 @@ class Reading(models.Model):
             if debt.paid:
 
                 # 🔒 Si la deuda ya está pagada, no se puede modificar
-                raise ValidationError(
-                    f"No se puede modificar la lectura de {self.period.strftime('%Y-%m')} porque ya está pagada."
-                )
+                raise ValidationError(f"No se puede modificar la lectura de {self.period.strftime('%Y-%m')} porque ya está pagada.")
             
             debt.reading = self
-            debt.amount = self.total_amount
+            debt.amount = total_amount
             debt.save()
 
         # recreamos detalles
         debt.details.all().delete()
 
         concept_map = {
+
             "price_water": self.total_water,
             "price_sewer": self.total_sewer,
-            "price_fixed_charge": self.total_fixed_charge,
-            "price_clean": self.total_clean,
-            "price_igv": self.total_igv,
+
+            "price_fixed_charge": price_fixed_charge,
+            "price_clean": price_clean,
+            "price_maintenance": price_maintenance,
         }
 
-        concepts = CashConcept.objects.filter(
-            system_key__in=concept_map.keys()
-        )
+        concepts = {
+            concept.system_key: concept
+            for concept in CashConcept.objects.filter(
+                system_key__in=concept_map.keys()
+            )
+        }
 
-        for concept in concepts:
 
-            amount = concept_map.get(concept.system_key, 0)
+        for system_key, amount in concept_map.items():
 
             if amount > 0:
 
                 DebtDetail.objects.create(
                     debt=debt,
-                    concept=concept,
+                    concept=concepts[system_key],
                     amount=amount
                 )
 
@@ -720,17 +696,16 @@ class Reading(models.Model):
 
     def save(self, *args, skip_process=False, **kwargs):
 
-        assignment = MeterAssignment.objects.filter(
-            customer=self.customer,
-            is_active=True
-        ).select_related('meter').first()
+        assignment = MeterAssignment.objects.filter(customer=self.customer, is_active=True).select_related('meter').first()
 
         if assignment:
+
             self.meter = assignment.meter
             self.has_meter = True
-        else:
-            self.has_meter = False
 
+        else:
+
+            self.has_meter = False
 
         if not skip_process:
 
@@ -743,29 +718,6 @@ class Reading(models.Model):
 
             # Crear o actualizar deuda
             self._sync_debt()
-
-            # Recalcular en cascada los meses posteriores
-            next_readings = Reading.objects.filter(
-                customer=self.customer,
-                period__gt=self.period
-            ).order_by('period')
-
-            previous = self
-            for r in next_readings:
-                # Si ya está pagada, no continuar con la cadena
-                if r.paid:
-                    break
-
-                r.previous_reading = previous.current_reading
-                r.calculate_consumption()
-                r.calculate_total()
-                super(Reading, r).save(update_fields=[
-                    "previous_reading", "consumption",
-                    "total_water", "total_sewer",
-                    "total_fixed_charge", "total_amount"
-                ])
-                r._sync_debt()
-                previous = r
 
         else:
 

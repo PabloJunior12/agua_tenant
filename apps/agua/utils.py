@@ -1,15 +1,14 @@
 import datetime
-import django_filters
 import pandas as pd
 import uuid
 import re
-from django.db import transaction
-from django.db.models import Max, IntegerField, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery, DecimalField, Value
-from django.utils.timezone import now, localdate
+
+from django.db.models.functions import Cast, Coalesce
+from django.db.models import IntegerField, Sum, Count, Q, Exists, OuterRef, Subquery, DecimalField, Value
+from django.utils.timezone import localdate
+
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from .models import Reading, MeterAssignment, Debt, DailyCashReport, CashBox, WaterMeter, ServiceCut, Customer, Calle
-from django.db.models.functions import Cast, Coalesce
 
 MESES = {
     "ENERO": 1,
@@ -27,10 +26,10 @@ MESES = {
     "DICIEMBRE": 12,
 }
 
-
 VIAS_VALIDAS = ["AV", "JR", "CALLE", "PJE", "PRLG", "SECTOR", "AUTOP","PSJE"]
 
 def extraer_via_y_nombre(address):
+
     if not address:
         return None, None
 
@@ -55,6 +54,8 @@ def extraer_via_y_nombre(address):
     return None, None
 
 def obtener_calle(address):
+
+    from .models import Calle
 
     via_str, nombre = extraer_via_y_nombre(address)
 
@@ -106,26 +107,6 @@ def flatten_errors(error_dict):
     elif isinstance(error_dict, list):
         return ' | '.join(str(e) for e in error_dict)
     return str(error_dict)
-
-class ReadingFilter(django_filters.FilterSet):
-
-    year = django_filters.NumberFilter(field_name='period', lookup_expr='year')
-    month = django_filters.NumberFilter(field_name='period', lookup_expr='month')
-
-    class Meta:
-        
-        model = Reading
-        fields = ['customer', 'paid', 'year', 'month']
-
-class DebtFilter(django_filters.FilterSet):
-
-    year = django_filters.NumberFilter(field_name='period', lookup_expr='year')
-    month = django_filters.NumberFilter(field_name='period', lookup_expr='month')
-
-    class Meta:
-        
-        model = Debt
-        fields = ['customer', 'paid','is_refinanced', 'year', 'month', 'customer__codigo']
 
 def clean_value(value):
     if pd.isna(value):
@@ -217,7 +198,10 @@ def format_period(periodo):
         ]
         return f"{meses[month-1]} {year}"
 
-def generate_daily_report(cashbox: CashBox, date=None):
+def generate_daily_report(cashbox, date=None):
+
+    from .models import DailyCashReport
+
     if not date:
         date = localdate()
 
@@ -286,6 +270,8 @@ def get_reading_status(reading):
 
 def generar_codigo_medidor_unico():
 
+    from .models import WaterMeter
+
     while True:
         # Genera un código aleatorio (ej: MED-5f2e1a8d)
         nuevo_codigo = "MED-" + uuid.uuid4().hex[:8]
@@ -331,6 +317,8 @@ def calcular_igv_simple(monto):
 
 def get_morosos_queryset(zona_id=None, min_months=1, state=None):
 
+    from .models import ServiceCut, Customer
+
     pending_cut_subquery = ServiceCut.objects.filter(
         customer=OuterRef('pk'),
         status="pending"
@@ -370,6 +358,8 @@ def get_morosos_queryset(zona_id=None, min_months=1, state=None):
     return queryset
 
 def get_catastral_queryset(period_date):
+
+    from .models import Reading, MeterAssignment
 
     # ==========================================
     # LECTURA DEL PERÍODO ACTUAL
@@ -502,6 +492,8 @@ def get_catastral_queryset(period_date):
 
 def get_full_catastral_queryset():
 
+    from .models import MeterAssignment, Customer
+
     active_meter = MeterAssignment.objects.filter(
         customer=OuterRef('pk'),
         is_active=True
@@ -539,3 +531,13 @@ def get_full_catastral_queryset():
             # 'predio_number',
         )
     )
+
+def get_concept_total(system_key):
+    
+    from .models import CashConcept
+
+    concept = CashConcept.objects.filter(
+        system_key=system_key
+    ).first()
+
+    return concept.total if concept else 0
