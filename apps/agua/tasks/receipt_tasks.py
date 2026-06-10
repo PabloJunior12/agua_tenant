@@ -41,7 +41,7 @@ def generate_receipts_task(batch_id, schema_name):
         if batch.type == 'masivo':
         
             zonas = Zona.objects.annotate(
-                total=Count("customers__readings")
+                total=Count("customers__readings", distinct=True)
             )
 
         if batch.type == 'zona':
@@ -70,50 +70,74 @@ def generate_receipts_task(batch_id, schema_name):
 
         # 🔥 recorrer zonas
         for zona in zonas:
+            
+            if schema_name == 'chilca':
 
-            queryset = (
-                Reading.objects.filter(
-                    period__year=batch.period.year,
-                    period__month=batch.period.month,
-                    customer__zona=zona
-                )
-                .select_related(
-                    "customer",
-                    "customer__zona",
-                    "customer__manzana",
-                )
-                .prefetch_related(
-                    Prefetch(
-                        "customer__debts",
-                        queryset=Debt.objects.filter(
-                            paid=False,
-                            period__lt=batch.period
+                queryset = (
+                    Reading.objects.filter(
+                        period__year=batch.period.year,
+                        period__month=batch.period.month,
+                        customer__zona=zona
+                    )
+                    .select_related(
+                        "customer",
+                        "customer__zona",
+                        "customer__manzana",
+                    )
+                    .prefetch_related(
+                        Prefetch(
+                            "customer__debts",
+                            queryset=Debt.objects.filter(
+                                paid=False,
+                                period__lt=batch.period
+                            ),
+                            to_attr="previous_debts"
+                        )
+                    )
+
+                    # ==========================================
+                    # ORDENAMIENTO CATASTRO
+                    # ==========================================
+                    .annotate(
+                        mz_number=Cast(
+                            'customer__manzana__codigo',
+                            IntegerField()
                         ),
-                        to_attr="previous_debts"
+
+                        predio_number=Cast(
+                            'customer__predio',
+                            IntegerField()
+                        ),
+                    )
+
+                    .order_by(
+                        'customer__sector',
+                        'mz_number',
+                        'predio_number',
                     )
                 )
 
-                # ==========================================
-                # ORDENAMIENTO CATASTRO
-                # ==========================================
-                .annotate(
-                    mz_number=Cast(
-                        'customer__manzana__codigo',
-                        IntegerField()
-                    ),
+            else:
 
-                    predio_number=Cast(
-                        'customer__predio',
-                        IntegerField()
-                    ),
+                queryset = (
+                    Reading.objects.filter(
+                        period__year=batch.period.year,
+                        period__month=batch.period.month,
+                        customer__zona=zona
+                    )
+                    .select_related("customer", "customer__zona")
+                    .prefetch_related(
+                        Prefetch(
+                            "customer__debts",
+                            queryset=Debt.objects.filter(
+                                paid=False,
+                                period__lt=batch.period
+                            ),
+                            to_attr="previous_debts"
+                        )
+                    )
+                    .order_by("customer__codigo")
                 )
-
-                .order_by(
-                    'customer__sector',
-                    'mz_number',
-                    'predio_number',
-                )
-            )
 
             total = queryset.count()
             offset = 0

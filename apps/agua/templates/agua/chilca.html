@@ -20,7 +20,7 @@
         .page {
             width: 148mm;
             height: 210mm;
-            /* background-image: url("{{ background_image }}"); */
+            /* background-image: url("{{ background_image }}");  */
             background-size: cover;
             background-repeat: no-repeat;
             position: relative;
@@ -35,10 +35,24 @@
 
         .address {
             position: absolute;
-            top: 34.5mm;
+            top: 33.5mm;
             left: 18mm;
-            font-size: 10px !important;
+
+            width: 55mm; /* importante para que haga salto de línea */
+
+            font-size: 8px !important;
+            line-height: 1.1;
+
+            display: -webkit-box;
+          
+            -webkit-box-orient: vertical;
+
+            overflow: hidden;
+            text-overflow: ellipsis;
+
+            word-break: break-word;
         }
+
 
         .zona {
             position: absolute;
