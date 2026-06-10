@@ -3,7 +3,8 @@ from apps.agua.models import Reading, Debt, Company, Zona, CashConcept
 from django_tenants.utils import schema_context
 from django.db.models import Count
 from django.template.loader import render_to_string
-from django.db.models import Prefetch
+from django.db.models.functions import Cast, Coalesce
+from django.db.models import Prefetch, IntegerField
 from django.utils.timezone import now
 from weasyprint import HTML
 from decimal import Decimal
@@ -76,7 +77,11 @@ def generate_receipts_task(batch_id, schema_name):
                     period__month=batch.period.month,
                     customer__zona=zona
                 )
-                .select_related("customer", "customer__zona")
+                .select_related(
+                    "customer",
+                    "customer__zona",
+                    "customer__manzana",
+                )
                 .prefetch_related(
                     Prefetch(
                         "customer__debts",
@@ -87,7 +92,27 @@ def generate_receipts_task(batch_id, schema_name):
                         to_attr="previous_debts"
                     )
                 )
-                .order_by("customer__codigo")
+
+                # ==========================================
+                # ORDENAMIENTO CATASTRO
+                # ==========================================
+                .annotate(
+                    mz_number=Cast(
+                        'customer__manzana__codigo',
+                        IntegerField()
+                    ),
+
+                    predio_number=Cast(
+                        'customer__predio',
+                        IntegerField()
+                    ),
+                )
+
+                .order_by(
+                    'customer__sector',
+                    'mz_number',
+                    'predio_number',
+                )
             )
 
             total = queryset.count()
