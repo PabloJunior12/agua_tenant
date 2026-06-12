@@ -5,7 +5,7 @@ from django.http import HttpResponse, FileResponse
 from django.conf import settings
 from django.utils.timezone import now, localdate
 from django.db import transaction, connection, IntegrityError
-from django.db.models import Max, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery, DecimalField, IntegerField
+from django.db.models import Max, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery, DecimalField, IntegerField, Avg
 from django.db.models.functions import Coalesce, Cast
 
 from django_q.tasks import async_task
@@ -28,6 +28,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
+from openpyxl.utils import get_column_letter
 from dateutil.relativedelta import relativedelta
 
 from apps.agua.core.permissions import GlobalPermissionMixin, TenantPaymentCreatePermission
@@ -4588,3 +4589,505 @@ class DebtRefinancingViewSet(TenantSafeMixin, viewsets.ModelViewSet):
             "message": "Cuota pagada correctamente"
 
         })
+
+class AtypicalConsumptionReportExcelView(TenantSafeMixin, APIView):
+
+    HIGH_FACTOR = Decimal("1.8")
+    LOW_FACTOR = Decimal("0.4")
+
+    def get(self, request):
+
+        period = request.GET.get("period")
+
+        if not period:
+
+            return Response(
+                {"error": "Debe enviar el periodo"},
+                status=400
+            )
+
+        zona = request.GET.get("zona")
+        category = request.GET.get("category")
+
+        queryset = (
+            Reading.objects
+            .filter(
+                period=period,
+                customer__state="active",
+                customer__status=True,
+            )
+            .select_related(
+                "customer",
+                "customer__zona",
+                "customer__category"
+            )
+            .order_by(
+                "customer__zona__name",
+                "customer__full_name"
+            )
+        )
+        
+        # =====================================================
+        # CLIENTES NO LECTURADOS
+        # =====================================================
+
+        read_customer_ids = queryset.values_list(
+            "customer_id",
+            flat=True
+        )
+
+        not_read_queryset = Customer.objects.filter(
+            has_meter=True,
+            status=True,
+            state="active",
+        ).exclude(
+            id__in=read_customer_ids
+        )
+
+        if zona:
+
+            queryset = queryset.filter(customer__zona_id=zona)
+
+        if category:
+
+            queryset = queryset.filter(customer__category_id=category)
+
+
+        # =====================================================
+        # CONTENEDORES
+        # =====================================================
+
+        high_consumption = []
+        low_consumption = []
+        zero_consumption = []
+        abrupt_variation = []
+        suspicious_leaks = []
+        suspended_with_consumption = []
+        not_read_customers = []
+        # =====================================================
+        # ANALISIS
+        # =====================================================
+
+        for reading in queryset:
+
+            customer = reading.customer
+
+            historical = (
+                Reading.objects
+                .filter(
+                    customer=customer,
+                    period__lt=reading.period
+                )
+                .exclude(consumption__isnull=True)
+                .order_by("-period")[:6]
+            )
+
+            avg_consumption = (
+                historical.aggregate(
+                    avg=Avg("consumption")
+                )["avg"]
+                or Decimal("0")
+            )
+
+            current = reading.consumption or Decimal("0")
+
+            variation_percent = Decimal("0")
+
+            if avg_consumption > 0:
+
+                variation_percent = (
+                    (
+                        current - avg_consumption
+                    ) / avg_consumption
+                ) * 100
+
+            # =================================================
+            # DEUDA
+            # =================================================
+
+            has_debt = Debt.objects.filter(
+                customer=customer,
+                paid=False
+            ).exists()
+
+            base_data = {
+
+                "codigo": customer.codigo,
+                "tiene_medidor": "SI" if customer.has_meter else "NO",
+                "cliente": customer.full_name,
+                "zona": (
+                    customer.zona.name
+                    if customer.zona else "-"
+                ),
+                "categoria": (
+                    customer.category.name
+                    if customer.category else "-"
+                ),
+                "consumo_actual": float(current),
+                "promedio": float(avg_consumption),
+                "variacion": round(float(variation_percent), 2),
+                "deuda": "SI" if has_debt else "NO",
+                "estado": customer.state,
+                "direccion": customer.address or "",
+            }
+
+            # =================================================
+            # ALTO CONSUMO
+            # =================================================
+
+            if (
+                avg_consumption > 0
+                and current > avg_consumption * self.HIGH_FACTOR
+            ):
+
+                high_consumption.append(base_data)
+
+            # =================================================
+            # BAJO CONSUMO
+            # =================================================
+
+            elif (
+                avg_consumption > 0
+                and current < avg_consumption * self.LOW_FACTOR
+            ):
+
+                low_consumption.append(base_data)
+
+            # =================================================
+            # CONSUMO CERO
+            # =================================================
+
+            if current == 0:
+
+                zero_consumption.append(base_data)
+
+            # =================================================
+            # VARIACION BRUSCA
+            # =================================================
+
+            if abs(variation_percent) >= 100:
+
+                abrupt_variation.append(base_data)
+
+            # =================================================
+            # SUSPENDIDOS CON CONSUMO
+            # =================================================
+
+            if (customer.state in ["cut"]):
+
+                suspended_with_consumption.append(base_data)
+
+            # =================================================
+            # POSIBLE FUGA
+            # =================================================
+
+            last_3 = list(
+                Reading.objects.filter(
+                    customer=customer,
+                    period__lt=reading.period
+                )
+                .order_by("-period")[:3]
+            )
+
+            if len(last_3) == 3:
+
+                consumptions = [
+                    r.consumption for r in reversed(last_3)
+                ]
+
+                consumptions.append(current)
+
+                if (
+                    consumptions[0]
+                    < consumptions[1]
+                    < consumptions[2]
+                    < consumptions[3]
+                ):
+
+                    suspicious_leaks.append(base_data)
+
+
+        for customer in not_read_queryset:
+
+            has_debt = Debt.objects.filter(
+                customer=customer,
+                paid=False
+            ).exists()
+
+            not_read_customers.append({
+
+                "codigo": customer.codigo,
+
+                "cliente": customer.full_name,
+
+                "zona": (
+                    customer.zona.name
+                    if customer.zona else "-"
+                ),
+
+                "tiene_medidor": (
+                    "SI" if customer.has_meter else "NO"
+                ),
+
+                "categoria": (
+                    customer.category.name
+                    if customer.category else "-"
+                ),
+
+                "consumo_actual": "",
+
+                "promedio": "",
+
+                "variacion": "",
+
+                "deuda": "SI" if has_debt else "NO",
+
+                "estado": customer.state,
+
+                "direccion": customer.address or "",
+
+            })
+        # =====================================================
+        # CREAR EXCEL
+        # =====================================================
+
+        wb = Workbook()
+
+        # =====================================================
+        # ESTILOS
+        # =====================================================
+
+        header_fill = PatternFill(
+            start_color="1F4E78",
+            end_color="1F4E78",
+            fill_type="solid"
+        )
+
+        red_fill = PatternFill(
+            start_color="FFC7CE",
+            end_color="FFC7CE",
+            fill_type="solid"
+        )
+
+        yellow_fill = PatternFill(
+            start_color="FFF3CD",
+            end_color="FFF3CD",
+            fill_type="solid"
+        )
+
+        blue_fill = PatternFill(
+            start_color="D9EAF7",
+            end_color="D9EAF7",
+            fill_type="solid"
+        )
+
+        white_font = Font(
+            bold=True,
+            color="FFFFFF"
+        )
+
+        # =====================================================
+        # FUNCION CREAR SHEET
+        # =====================================================
+
+        def create_sheet(title, data, fill=None):
+
+            ws = wb.create_sheet(title)
+
+            headers = [
+                "CODIGO",
+                "CLIENTE",
+                "ZONA",
+                "TIENE_MEDIDOR",
+                "CATEGORIA",
+                "CONSUMO ACTUAL",
+                "PROMEDIO",
+                "VARIACION %",
+                "DEUDA",
+                "ESTADO",
+                "DIRECCION",
+            ]
+
+            ws.append(headers)
+
+            # HEADER STYLE
+            for cell in ws[1]:
+
+                cell.font = white_font
+                cell.fill = header_fill
+
+            # DATA
+            for item in data:
+
+                row = [
+                    item["codigo"],
+                    item["cliente"],
+                    item["zona"],
+                    item["tiene_medidor"],
+                    item["categoria"],
+                    item["consumo_actual"],
+                    item["promedio"],
+                    item["variacion"],
+                    item["deuda"],
+                    item["estado"],
+                    item["direccion"],
+                ]
+
+                ws.append(row)
+
+            # COLOR FILAS
+            if fill:
+
+                for row in ws.iter_rows(
+                    min_row=2,
+                    max_row=ws.max_row
+                ):
+
+                    for cell in row:
+
+                        cell.fill = fill
+
+            # AUTOFILTER
+            ws.auto_filter.ref = ws.dimensions
+
+            # FREEZE
+            ws.freeze_panes = "A2"
+
+            # AUTO WIDTH
+            for column_cells in ws.columns:
+
+                length = max(
+                    len(str(cell.value or ""))
+                    for cell in column_cells
+                )
+
+                column_letter = get_column_letter(
+                    column_cells[0].column
+                )
+
+                ws.column_dimensions[
+                    column_letter
+                ].width = length + 5
+
+            return ws
+
+        # =====================================================
+        # ELIMINAR HOJA DEFAULT
+        # =====================================================
+
+        wb.remove(wb.active)
+
+        # =====================================================
+        # RESUMEN
+        # =====================================================
+
+        summary = wb.create_sheet("Resumen")
+
+        summary.append(["INDICADOR", "TOTAL"])
+
+        summary.append([
+            "Clientes analizados",
+            queryset.count()
+        ])
+
+        summary.append([
+            "Alto consumo",
+            len(high_consumption)
+        ])
+
+        summary.append([
+            "Bajo consumo",
+            len(low_consumption)
+        ])
+
+        summary.append([
+            "Consumo cero",
+            len(zero_consumption)
+        ])
+
+        summary.append([
+            "Variación brusca",
+            len(abrupt_variation)
+        ])
+
+        summary.append([
+            "Posible fuga",
+            len(suspicious_leaks)
+        ])
+
+        summary.append([
+            "Clientes no lecturados",
+            len(not_read_customers)
+        ])
+
+
+        for cell in summary[1]:
+
+            cell.font = white_font
+            cell.fill = header_fill
+
+        summary.freeze_panes = "A2"
+
+        # =====================================================
+        # SHEETS
+        # =====================================================
+
+        create_sheet(
+            "Alto Consumo",
+            high_consumption,
+            red_fill
+        )
+
+        create_sheet(
+            "Bajo Consumo",
+            low_consumption,
+            yellow_fill
+        )
+
+        create_sheet(
+            "Consumo Cero",
+            zero_consumption,
+            blue_fill
+        )
+
+        create_sheet(
+            "Variacion Brusca",
+            abrupt_variation,
+            yellow_fill
+        )
+
+        create_sheet(
+            "Posibles Fugas",
+            suspicious_leaks,
+            red_fill
+        )
+
+        create_sheet(
+            "No Lecturados",
+            not_read_customers,
+            yellow_fill
+        )
+
+
+        # =====================================================
+        # RESPONSE
+        # =====================================================
+
+        response = HttpResponse(
+            content_type=(
+                "application/vnd.openxmlformats-"
+                "officedocument.spreadsheetml.sheet"
+            )
+        )
+
+        filename = (
+            f"reporte_consumos_atipicos_{period}.xlsx"
+        )
+
+        response[
+            "Content-Disposition"
+        ] = f'attachment; filename="{filename}"'
+
+        wb.save(response)
+
+        return response
