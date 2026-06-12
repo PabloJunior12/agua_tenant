@@ -493,7 +493,10 @@ class Reading(models.Model):
         consumo = self.consumption or Decimal('0.000')
         fijo = tariff.price_water
         maximo = tariff.max_consumption or Decimal('0.000')
+
         extra = tariff.extra_rate or Decimal('0.00')
+
+
 
         if consumo <= maximo:
 
@@ -521,6 +524,8 @@ class Reading(models.Model):
         else:
 
             exceso = consumo - maximo
+
+            # print(fijo + (exceso * extra))
             return fijo + (exceso * extra)
 
     # END CALCULO
@@ -567,15 +572,15 @@ class Reading(models.Model):
         if tariff.has_meter:
 
             if tariff.billing_mode == 'per_unit':
-
+              
                 water = self.calculate_water_total(tariff)
                 sewer = self.calculate_sewer_total(tariff)
 
             elif tariff.billing_mode == 'fixed_until_max':
-
+                
                 water = self.calculate_water_total_fixed_until_max(tariff)
                 sewer = self.calculate_sewer_total_fixed_until_max(tariff)
-
+            
             else:
 
                 water = self.consumption * tariff.price_water
@@ -586,7 +591,7 @@ class Reading(models.Model):
             water = tariff.price_water
             sewer = tariff.price_sewer or Decimal('0.00')
 
-
+    
         if billing_type == "water":
 
             sewer = Decimal('0.00')
@@ -594,8 +599,7 @@ class Reading(models.Model):
         elif billing_type == "sewer":
 
             water = Decimal('0.00')
-
-
+     
         if tenant == "pangoa":
 
             if self.customer.state == "inactive":

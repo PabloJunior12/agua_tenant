@@ -1945,55 +1945,62 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     
     def perform_destroy(self, instance):
 
-        # 🔒 No borrar si está pagada
-        if instance.paid:
-            raise ValidationError({"error": "No se puede eliminar una lectura que ya esta pagada."})
+        # 🔒 No borrar si la deuda ya fue pagada
+        if hasattr(instance, "debt") and instance.debt and instance.debt.paid:
+            raise ValidationError({
+                "error": "No se puede eliminar una lectura que ya está pagada."
+            })
 
         # 🔒 No borrar si existen lecturas posteriores pagadas
         has_paid_next = Reading.objects.filter(
             customer=instance.customer,
             period__gt=instance.period,
-            paid=True
+            debt__paid=True
         ).exists()
+
         if has_paid_next:
-            raise ValidationError({"error": "No se puede eliminar porque existen lecturas posteriores ya pagadas."})
+            raise ValidationError({
+                "error": "No se puede eliminar porque existen lecturas posteriores ya pagadas."
+            })
 
-        customer = instance.customer
-        period = instance.period
-
-        # Eliminar deuda asociada si existe
-        if hasattr(instance, "debt"):
+        # Eliminar deuda asociada
+        if hasattr(instance, "debt") and instance.debt:
             instance.debt.delete()
 
-        # Guardamos todas las lecturas posteriores (ordenadas por fecha)
-        next_readings = Reading.objects.filter(
-            customer=customer,
-            period__gt=period
-        ).order_by("period")
-
-        # Eliminamos la lectura actual
+        # Eliminar lectura
         instance.delete()
 
-        # 🔄 Recalcular en cascada todas las lecturas posteriores
-        prev_value = 0
-        prev_reading = Reading.objects.filter(
-            customer=customer,
-            period__lt=period
-        ).order_by("-period").first()
-        if prev_reading:
-            prev_value = prev_reading.current_reading
+        # # Obtener lectura previa
+        # prev_reading = Reading.objects.filter(
+        #     customer=customer,
+        #     period__lt=period
+        # ).order_by("-period").first()
 
-        for r in next_readings:
-            r.previous_reading = prev_value
-            r.consumption = r.current_reading - prev_value
+        # prev_value = (
+        #     prev_reading.current_reading
+        #     if prev_reading
+        #     else 0
+        # )
 
-            # Si existe deuda asociada, actualizamos el monto
-            if hasattr(r, "debt"):
-                r.debt.amount = r.consumption * r.customer.category.price_water
-                r.debt.save()
+        # # 🔄 Recalcular posteriores
+        # for r in next_readings:
 
-            r.save()
-            prev_value = r.current_reading
+        #     r.previous_reading = prev_value
+        #     r.consumption = r.current_reading - prev_value
+
+        #     # Recalcular deuda
+        #     if hasattr(r, "debt") and r.debt:
+
+        #         r.debt.amount = (
+        #             r.consumption *
+        #             r.customer.category.price_water
+        #         )
+
+        #         r.debt.save()
+
+        #     r.save()
+
+        #     prev_value = r.current_reading
 
     @action(detail=False, methods=['get'], url_path='has-history/(?P<customer_id>[^/.]+)')
     def has_history(self, request, customer_id=None):

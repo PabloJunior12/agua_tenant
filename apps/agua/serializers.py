@@ -394,12 +394,11 @@ class ReadingSerializer(serializers.ModelSerializer):
         # 2) Evitar registrar un mes anterior si ya existe uno posterior
         future_qs = Reading.objects.filter(
             customer=customer,
-            period__gt=period,
-            paid=True
+            period__gt=period
         )
         if future_qs.exists():
             raise ValidationError(
-                "No se puede editar porque existen lecturas posteriores ya pagadas."
+                "No se puede registrar o editar porque existen lecturas posteriores."
             )
 
         # 3) Verificar que no se salten meses.
