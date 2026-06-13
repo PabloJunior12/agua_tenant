@@ -681,181 +681,204 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
     @action(detail=False, methods=['post'])
     def import_excel_readings(self, request):
 
-            # Reading.objects.all().delete()
+        file = request.FILES.get('file')
 
-            # return Response("si")
+        if not file:
+            return Response({
+                'error': 'No se proporcionó un archivo.'
+            }, status=400)
 
-            file = request.FILES.get('file')
+        # ==========================================
+        # LEER EXCEL
+        # ==========================================
+        try:
 
-            if not file:
-                return Response({
-                    'error': 'No se proporcionó un archivo.'
-                }, status=400)
+            df = pd.read_excel(
+                file,
+                sheet_name=2,
+                engine='openpyxl'
+            )
 
-            try:
-                df = pd.read_excel(
-                        file,
-                        sheet_name=2,  # tercera hoja
-                        engine='openpyxl'
-                    )
-
-            except Exception as e:
-                return Response({
-                    'error': f'Error al leer el archivo: {str(e)}'
-                }, status=400)
-
-            # ==========================================
-            # LIMPIAR NOMBRES DE COLUMNAS
-            # ==========================================
-            df.columns = df.columns.str.strip().str.upper()
-
-            month_map = {
-                "LEC. ENERO": 1,
-                "LEC. FEBRERO": 2,
-                "LEC. MARZO": 3,
-                "LEC. ABRIL": 4,
-                "LEC. MAYO": 5,
-            }
-
-            created = 0
-            skipped = 0
-
-
-            # ==========================================
-            # BORRAR LECTURAS
-            # ==========================================
-            # Reading.objects.all().delete()
-
-            # ==========================================
-            # RECORRER EXCEL
-            # ==========================================
-            for _, row in df.iterrows():
-
-                codigo = str(
-                    clean_value(row.get('SUMINISTRO'))
-                ).strip()
-
-                print(codigo)
-
-                if not codigo:
-                    skipped += 1
-                    continue
-
-                # ==========================================
-                # CLIENTE
-                # ==========================================
-                customer = Customer.objects.filter(codigo=codigo, state='active').first()
-
-                if not customer:
-                    skipped += 1
-                    continue
-
-                print(customer)
-
-                previous_reading = None
-
-                # ==========================================
-                # RECORRER MESES
-                # ==========================================
-                for lect_col, month in sorted(
-                    month_map.items(),
-                    key=lambda x: x[1]
-                ):
-
-                    current_reading = to_decimal_or_none(
-                        row.get(lect_col)
-                    )
-
-                    if current_reading is None:
-                        continue
-
-                    period_date = date(2026, month, 1)
-
-                    # ==========================================
-                    # OBTENER MEDIDOR ACTIVO
-                    # ==========================================
-                    assignment = MeterAssignment.objects.filter(customer=customer).first()
-
-                     # SI NO TIENE MEDIDOR -> OMITIR
-                    if not assignment or not assignment.meter:
-                        skipped += 1
-                        continue
-
-                    meter = assignment.meter
-
-                    print(customer.codigo, meter)
-    
-                    # ==========================================
-                    # PRIMERA LECTURA
-                    # ==========================================
-                    if previous_reading is None:
-
-                        prev_value = current_reading
-                        consumption = Decimal('0.000')
-
-                    else:
-
-                        prev_value = previous_reading
-
-                        consumption = (
-                            current_reading - prev_value
-                        )
-
-                        # evitar negativos
-                        if consumption < 0:
-                            consumption = Decimal('0.000')
-
-                    try:
-                       with transaction.atomic():
-        
-                        # ==========================================
-                        # CREAR LECTURA
-                        # ==========================================
-                        reading = Reading(
-                            customer=customer,
-                            meter=meter,
-
-                            period=period_date,
-
-                            current_reading=current_reading,
-                            previous_reading=prev_value,
-                            consumption=consumption,
-
-                            status='normal',
-
-                            has_meter=True if meter else False
-                        )
-
-                        # SOLO MAYO GENERA DEUDA
-                        if month == 5:
-
-                            reading.save()
-
-                        else:
-
-                            reading.save(skip_process=True)
-
-                        previous_reading = current_reading
-
-                        created += 1
-
-
-                    except IntegrityError:
-
-                        print(
-                            f"LECTURA DUPLICADA -> "
-                            f"{customer.codigo} - {period_date}"
-                        )
-
-                        skipped += 1
-
-                        continue
+        except Exception as e:
 
             return Response({
-                "message": "Importación completada",
-                "readings_created": created,
-                "skipped": skipped
-            }, status=status.HTTP_201_CREATED)
+                'error': f'Error al leer el archivo: {str(e)}'
+            }, status=400)
+
+        # ==========================================
+        # LIMPIAR COLUMNAS
+        # ==========================================
+        df.columns = df.columns.str.strip().str.upper()
+
+        created = 0
+        skipped = 0
+
+        # ==========================================
+        # RECORRER FILAS
+        # ==========================================
+        for _, row in df.iterrows():
+
+            # ==========================================
+            # CODIGO CLIENTE
+            # ==========================================
+            codigo = str(
+                clean_value(row.get('SUMINISTRO'))
+            ).strip()
+
+            observation = clean_value(
+                row.get('OBSERVACIONES')
+            )
+
+            observation = observation.strip() if observation else None
+        
+            if not codigo:
+                skipped += 1
+                continue
+
+            # ==========================================
+            # CLIENTE
+            # ==========================================
+            customer = Customer.objects.filter(
+                codigo=codigo,
+                state='active'
+            ).first()
+
+            if not customer:
+                skipped += 1
+                continue
+
+            customer.observation = observation
+            customer.save()
+
+            # ==========================================
+            # MEDIDOR ACTIVO
+            # ==========================================
+            assignment = MeterAssignment.objects.filter(
+                customer=customer
+            ).first()
+
+            if not assignment or not assignment.meter:
+                skipped += 1
+                continue
+
+            meter = assignment.meter
+
+            # ==========================================
+            # LECTURA DE MAYO
+            # ==========================================
+            current_reading = to_decimal_or_none(
+                row.get('LEC. MAYO')
+            )
+
+            if current_reading is None:
+                skipped += 1
+                continue
+
+            # ==========================================
+            # PERIODO
+            # ==========================================
+            period_date = date(2026, 5, 1)
+
+            # ==========================================
+            # VALIDAR SI YA EXISTE
+            # ==========================================
+            exists = Reading.objects.filter(
+                customer=customer,
+                period=period_date
+            ).exists()
+
+            if exists:
+
+                print(
+                    f"YA EXISTE -> {customer.codigo}"
+                )
+
+                skipped += 1
+                continue
+
+            # ==========================================
+            # OBTENER ULTIMA LECTURA
+            # ==========================================
+            last_reading = Reading.objects.filter(
+                customer=customer
+            ).order_by('-period').first()
+
+            # ==========================================
+            # CALCULAR CONSUMO
+            # ==========================================
+            if last_reading:
+
+                prev_value = last_reading.current_reading
+
+                consumption = (
+                    current_reading - prev_value
+                )
+
+                # evitar negativos
+                if consumption < 0:
+                    consumption = Decimal('0.000')
+
+            else:
+
+                # primera lectura histórica
+                prev_value = current_reading
+                consumption = Decimal('0.000')
+
+   
+            try:
+
+                with transaction.atomic():
+
+                    # ==========================================
+                    # CREAR LECTURA
+                    # ==========================================
+                    reading = Reading.objects.create(
+                        customer=customer,
+                        meter=meter,
+
+                        period=period_date,
+
+                        current_reading=current_reading,
+                        previous_reading=prev_value,
+                        consumption=consumption,
+
+                        status='normal',
+                        has_meter=True
+                    )
+
+                    created += 1
+
+                    print(
+                        f"CREADO -> "
+                        f"{customer.codigo} | "
+                        f"Anterior: {prev_value} | "
+                        f"Actual: {current_reading} | "
+                        f"Consumo: {consumption}"
+                    )
+
+            except IntegrityError:
+
+                print(
+                    f"DUPLICADO -> "
+                    f"{customer.codigo}"
+                )
+
+                skipped += 1
+
+            except Exception as e:
+
+                print(
+                    f"ERROR -> "
+                    f"{customer.codigo} -> {str(e)}"
+                )
+
+                skipped += 1
+
+        return Response({
+            "message": "Importación completada",
+            "readings_created": created,
+            "skipped": skipped
+        }, status=status.HTTP_201_CREATED)
 
 class CashBoxViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     
@@ -1385,8 +1408,7 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
     def get_queryset(self):
 
         month = self.request.query_params.get('month')
-        pending = self.request.query_params.get('pending')
-        # print(pending)
+
         if not month:
             return MeterAssignment.objects.none()
 
@@ -1397,10 +1419,10 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
         queryset = get_catastral_queryset(period_date)
 
         # # SOLO MEDIDORES SIN LECTURA
-        if pending:
-            queryset = queryset.filter(
-                has_current_reading__isnull=True
-            )
+        # if pending == 'si':
+        #     queryset = queryset.filter(
+        #         has_current_reading=False
+        #     )
 
         return queryset
 
@@ -2234,7 +2256,8 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         )
 
         qs = Customer.objects.filter(
-            state='active'
+            state='active',
+            status=True
         ).annotate(
             has_reading=Exists(readings)
         )
@@ -2277,7 +2300,7 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
            return Response({"error": f"Ya se generaron lecturas para {period_str}."}, status=400)
 
-        customers = Customer.objects.filter(has_meter=False, state__in=['active', 'inactive'])
+        customers = Customer.objects.filter(has_meter=False, state__in=['active', 'inactive'], status=True)
 
         created = 0
         skipped_existing = 0
@@ -2344,6 +2367,7 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     
     @transaction.atomic
     def destroy(self, request, *args, **kwargs):
+
         instance = self.get_object()
         period = instance.period
 
@@ -2367,10 +2391,7 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         # Eliminar la generación
         instance.delete()
 
-        return Response({
-            "message": f"Generación del periodo {period.strftime('%Y-%m')} anulada correctamente.",
-            "lecturas_eliminadas": deleted_count
-        }, status=204)
+        return Response({"message": f"Generación del periodo {period.strftime('%Y-%m')} anulada correctamente.", "lecturas_eliminadas": deleted_count}, status=204)
 
     # RECIBOS POR CALLE
     @action(detail=False, methods=['get'])
