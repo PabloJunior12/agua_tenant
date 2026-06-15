@@ -21,6 +21,7 @@ from rest_framework.views import APIView
 from django.conf import settings
 from datetime import timedelta
 from django.utils.timezone import now
+import shutil
 
 class ValidateTenantView(APIView):
 
@@ -141,12 +142,55 @@ class ReceiptBatchViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
 
+        queryset = ReceiptBatch.objects.all()
+
         tenant = self.request.query_params.get("tenant")
 
-        if not tenant:
-            return ReceiptBatch.objects.none()
+        # SOLO FILTRAR EN LIST
+        if self.action == "list":
 
-        return ReceiptBatch.objects.filter(tenant=tenant).order_by('-id')
+            if not tenant:
+                return ReceiptBatch.objects.none()
+
+            queryset = queryset.filter(tenant=tenant)
+
+        return queryset.order_by('-id')
+
+    def destroy(self, request, *args, **kwargs):
+
+        batch = self.get_object()
+
+        # ==========================================
+        # SOLO ELIMINAR SI YA TERMINÓ
+        # ==========================================
+        if batch.status != "done":
+            raise ValidationError({
+                "error": "Solo se pueden eliminar lotes finalizados."
+            })
+
+        # ==========================================
+        # ELIMINAR PDFs
+        # ==========================================
+        folder_path = os.path.join(
+            settings.MEDIA_ROOT,
+            "tenants",
+            batch.tenant,
+            "recibos",
+            batch.ticket
+        )
+
+        if os.path.exists(folder_path):
+            shutil.rmtree(folder_path)
+
+        # ==========================================
+        # ELIMINAR REGISTRO
+        # ==========================================
+        batch.delete()
+
+        return Response(
+            {"detail": "Lote eliminado correctamente"},
+            status=status.HTTP_200_OK
+        )
 
 class ConecctMineco(APIView):
 
