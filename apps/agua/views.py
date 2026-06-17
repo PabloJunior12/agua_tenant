@@ -3627,7 +3627,7 @@ class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend,filters.SearchFilter]
     filterset_fields = ['status']  
-    search_fields = ['customer__codigo', 'customer__full_name', 'customer__number']
+    search_fields = ['customer__codigo', 'customer__full_name', 'customer__number','code']
 
     permission_classes = [TenantPaymentCreatePermission]
 
