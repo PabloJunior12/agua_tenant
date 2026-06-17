@@ -776,6 +776,17 @@ class DebtDetail(models.Model):
 
 class DebtRefinancing(models.Model):
 
+    TYPE_CHOICES = (
+        ('debt', 'Deuda'),
+        ('service', 'Servicio')
+    )
+
+    type = models.CharField(
+        max_length=20,
+        choices=TYPE_CHOICES,
+        default='debt'
+    )
+
     customer = models.ForeignKey(Customer,on_delete=models.CASCADE, related_name="refinancings")
 
     # deuda original
@@ -1202,6 +1213,7 @@ class ServiceCharge(models.Model):
 
     STATUS_CHOICES = (
         ('pending', 'Pendiente'),
+        ('refinanced', 'Refinanciado'),
         ('paid', 'Pagado'),
     )
 
@@ -1213,6 +1225,7 @@ class ServiceCharge(models.Model):
         on_delete=models.PROTECT
     )
 
+    is_refinanced = models.BooleanField(default=False)
     description = models.CharField(max_length=255)
 
     amount = models.DecimalField(
@@ -1227,3 +1240,16 @@ class ServiceCharge(models.Model):
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
+
+class ServiceRefinancingDetail(models.Model):
+
+    refinancing = models.ForeignKey(
+        DebtRefinancing,
+        on_delete=models.CASCADE,
+        related_name="service_details"
+    )
+
+    service_charge = models.ForeignKey(
+        ServiceCharge,
+        on_delete=models.PROTECT
+    )

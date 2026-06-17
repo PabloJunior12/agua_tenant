@@ -628,9 +628,10 @@ class InvoiceSerializer(serializers.ModelSerializer):
                     "error": "Debe incluir deudas, cuotas o conceptos para registrar la factura."
                 })
 
+
             # --- REGISTRAR PAGOS ---
             payments_total = 0
-            for item in payments_data:
+            for index, item in enumerate(payments_data):
                 payment = InvoicePayment.objects.create(
                     invoice=invoice,
                     method=item["method"],
@@ -639,7 +640,10 @@ class InvoiceSerializer(serializers.ModelSerializer):
                     cashbox=item["cashbox"]
                 )
 
-                if debts_data:
+               # SOLO EL PRIMER PAYMENT CREA LOS MOVIMIENTOS
+                if index == 0:
+
+                 if debts_data:
                     for inv_debt in invoice.invoice_debts.all():
                         for detail in inv_debt.debt.details.all():
                             CashMovement.objects.create(
@@ -651,7 +655,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
                                 invoice_payment=payment
                             )
 
-                elif concepts_data:
+                 elif concepts_data:
                     for inv_concept in invoice.invoice_concepts.all():
                         CashMovement.objects.create(
                             cashbox=item["cashbox"],
@@ -662,7 +666,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
                             invoice_payment=payment
                         )
 
-                elif installments_data:
+                 elif installments_data:
 
                     for inv_inst in invoice.invoice_installments.all():
 
@@ -988,7 +992,9 @@ class DebtRefinancingSerializer(serializers.ModelSerializer):
 
             'total_pending',
 
-            'installments_detail'
+            'installments_detail',
+
+            'type'
 
         ]
 

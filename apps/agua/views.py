@@ -36,7 +36,7 @@ from apps.tenant.utils.seed import generate_ticket
 from apps.tenant.models import Pay, ReceiptBatch
 from apps.user.models import User
 
-from .models import Customer, Manzana, CashMovement, ServiceCharge, Manzana, MeterAssignment, ServiceCut, Config, CutBatch, DailyCashReport, DebtRefinancing, DebtRefinancingDetail, RefinancingInstallment, WaterMeter, CashOutflow, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
+from .models import Customer, ServiceRefinancingDetail, Manzana, CashMovement, ServiceCharge, Manzana, MeterAssignment, ServiceCut, Config, CutBatch, DailyCashReport, DebtRefinancing, DebtRefinancingDetail, RefinancingInstallment, WaterMeter, CashOutflow, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
 from .serializers import (
     CustomerSerializer, ServiceCutSerializer, ServiceChargeSerializer, DebtRefinancingSerializer, ManzanaSerializer, MeterAssignmentSerializer, MorosidadSerializer, CutBatchSerializer, WaterMeterSerializer, RefinancingInstallmentSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
     ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ConfigSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer)
@@ -1021,28 +1021,51 @@ class CashBoxViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         total_general = sum(c["total"] for c in conceptos_data)
 
         # Agrupar por método de pago
-        metodo_dict = defaultdict(list)
-        for mov in movimientos.select_related("invoice_payment__invoice"):
-            metodo_dict[mov.method].append(mov)
-
         metodo_data = []
-        for metodo, movs in metodo_dict.items():
 
-            total_metodo = sum([
-                m.total if not (m.invoice_payment and m.invoice_payment.invoice.status == "cancelled") else 0
-                for m in movs
-            ])
+        payments = cashbox.payments.select_related("invoice")
+
+        if start_date and end_date:
+
+            payments = payments.filter(
+                created_at__date__range=(start, end)
+            )
+
+        else:
+
+            payments = payments.filter(
+                created_at__date=fecha
+            )
+
+        metodo_dict = defaultdict(list)
+
+        for pay in payments:
+
+            if pay.invoice.status == "cancelled":
+                continue
+
+            metodo_dict[pay.method].append(pay)
+
+        for metodo, pays in metodo_dict.items():
+
+            total_metodo = sum([p.total for p in pays])
+
             metodo_data.append({
                 "metodo": dict(InvoicePayment.PAYMENT_METHODS).get(metodo, metodo),
                 "total": total_metodo,
-                "movimientos": movs
+                "movimientos": pays
             })
+
+        total_metodos = sum([
+            m["total"] for m in metodo_data
+        ])
 
         html_string = render_to_string("reports/caja/daily.html", {
             "cashbox": cashbox,
             "user" : user,
             "conceptos": conceptos_data,
             "total_general": total_general,
+            "total_metodos": total_metodos,
             "reporte_tipo": reporte_tipo,
             "metodos": metodo_data,
             "report": cashbox,
@@ -1147,28 +1170,43 @@ class DailyCashReportViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         total_general = sum(c["total"] for c in conceptos_data)
 
         # Agrupar por método de pago
-        metodo_dict = defaultdict(list)
-        for mov in movimientos.select_related("invoice_payment__invoice"):
-            metodo_dict[mov.method].append(mov)
-
         metodo_data = []
-        for metodo, movs in metodo_dict.items():
 
-            total_metodo = sum([
-                m.total if not (m.invoice_payment and m.invoice_payment.invoice.status == "cancelled") else 0
-                for m in movs
-            ])
+        payments = cashbox.payments.select_related("invoice")
+
+        payments = payments.filter(
+            created_at__date=fecha
+        )
+
+        metodo_dict = defaultdict(list)
+
+        for pay in payments:
+
+            if pay.invoice.status == "cancelled":
+                continue
+
+            metodo_dict[pay.method].append(pay)
+
+        for metodo, pays in metodo_dict.items():
+
+            total_metodo = sum([p.total for p in pays])
+
             metodo_data.append({
                 "metodo": dict(InvoicePayment.PAYMENT_METHODS).get(metodo, metodo),
                 "total": total_metodo,
-                "movimientos": movs
+                "movimientos": pays
             })
+
+        total_metodos = sum([
+            m["total"] for m in metodo_data
+        ])
 
         html_string = render_to_string("reports/caja/daily.html", {
             "cashbox": cashbox,
             "user": user,
             "conceptos": conceptos_data,
             "total_general": total_general,
+            "total_metodos": total_metodos,
             "reporte_tipo": reporte_tipo,
             "metodos": metodo_data,
             "report": daily_cash,
@@ -3101,52 +3139,77 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     @action(detail=False, methods=['post'])
     def refinanciar(self, request):
 
-        tenant = connection.schema_name
-
-        if tenant != "chilca":
-            raise ValidationError(
-                "Refinanciacion no disponible"
-            )
+        tenant = request.tenant.schema_name
 
         customer_id = request.data.get("customer_id")
+
+        service_id = request.data.get("service_id")
 
         years = request.data.get("years", [])
 
         cuotas = int(request.data.get("cuotas", 1))
 
-        if not years:
-            raise ValidationError(
-                "Debe seleccionar al menos un año"
-            )
+        type = request.data.get("type", "debt")
 
         if cuotas <= 0:
-            raise ValidationError(
-                "Cuotas invalidas"
+
+            raise ValidationError("Cuotas invalidas")
+
+        total = Decimal('0')
+
+        debts = Debt.objects.none()
+        service_charges = ServiceCharge.objects.none()
+
+        ####################################################
+        # DEUDAS
+        ####################################################
+
+        if type in ['debt', 'all']:
+
+            debts = Debt.objects.filter(
+                customer_id=customer_id,
+                paid=False,
+                is_refinanced=False,
+                period__year__in=years
             )
 
-        debts = Debt.objects.filter(
-            customer_id=customer_id,
-            paid=False,
-            is_refinanced=False,
-            period__year__in=years
-        )
+            if not debts.exists():
+                raise ValidationError(
+                    "No hay deudas validas"
+                )
 
-        if not debts.exists():
-            raise ValidationError(
-                "No hay deudas validas"
+            total = (
+                debts.aggregate(total=Sum('amount'))['total']
+                or Decimal('0')
             )
 
         ####################################################
-        # TOTALES
+        # SERVICE CHARGES
         ####################################################
 
-        total = (
-            debts.aggregate(total=Sum('amount'))['total']
-            or Decimal('0')
-        )
+        if type in ['service', 'all']:
 
-        # 0.20% por cuota
-        INTEREST_RATE = Decimal('0.002')
+            service_charges = ServiceCharge.objects.filter(
+                pk = service_id,
+                # customer_id=customer_id,
+                status='pending',
+                is_refinanced=False
+            )
+
+            total += (
+                service_charges.aggregate(total=Sum('amount'))['total']
+                or Decimal('0')
+            )
+
+        ####################################################
+        # INTERES
+        ####################################################
+
+        INTEREST_RATE = Decimal('0')
+
+        if tenant == 'chilca':
+
+            INTEREST_RATE = Decimal('0.002')
 
         total_interest_rate = (
             INTEREST_RATE * cuotas
@@ -3204,13 +3267,15 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
                 total_amount=total,
 
-                interest_rate=Decimal('0.20'),
+                interest_rate=INTEREST_RATE,
 
                 interest_amount=interest_amount,
 
                 total_amount_with_interest=total_with_interest,
 
-                installments=cuotas
+                installments=cuotas,
+
+                type = type
 
             )
 
@@ -3228,6 +3293,21 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 d.is_refinanced = True
 
                 d.save()
+
+            ####################################################
+            # VINCULAR SERVICE CHARGES
+            ####################################################
+
+            for s in service_charges:
+
+                ServiceRefinancingDetail.objects.create(
+                    refinancing=ref,
+                    service_charge=s,
+                )
+
+                s.is_refinanced = True
+                s.status = 'refinanced'
+                s.save()
 
             ####################################################
             # GENERAR CRONOGRAMA
@@ -3307,34 +3387,73 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     @action(detail=False, methods=['post'])
     def preview_refinanciamiento(self, request):
 
+        tenant = request.tenant.schema_name
+    
         customer_id = request.data.get("customer_id")
+
+        service_id = request.data.get("service_id")
 
         years = request.data.get("years", [])
 
         cuotas = int(request.data.get("cuotas", 1))
 
+        type = request.data.get("type", "debt")
+
         if cuotas <= 0:
-            raise ValidationError(
-                "Cuotas invalidas"
+
+            raise ValidationError("Cuotas invalidas")
+
+        total = Decimal('0')
+
+        debts = Debt.objects.none()
+        service_charges = ServiceCharge.objects.none()
+
+        ####################################################
+        # DEUDAS
+        ####################################################
+
+        if type in ['debt', 'all']:
+
+            debts = Debt.objects.filter(
+                customer_id=customer_id,
+                paid=False,
+                is_refinanced=False,
+                period__year__in=years
             )
 
-        debts = Debt.objects.filter(
-            customer_id=customer_id,
-            paid=False,
-            is_refinanced=False,
-            period__year__in=years
-        )
+            total = (
+                debts.aggregate(total=Sum('amount'))['total']
+                or Decimal('0')
+            )
 
-        total = (
-            debts.aggregate(total=Sum('amount'))['total']
-            or Decimal('0')
-        )
+        ####################################################
+        # SERVICE CHARGES
+        ####################################################
+
+        if type in ['service', 'all']:
+
+            service_charges = ServiceCharge.objects.filter(
+                pk = service_id,
+                # customer_id=customer_id,
+                status='pending',
+                is_refinanced=False
+            )
+
+            total += (
+                service_charges.aggregate(total=Sum('amount'))['total']
+                or Decimal('0')
+            )
 
         ####################################################
         # INTERES
         ####################################################
 
-        INTEREST_RATE = Decimal('0.002')
+        INTEREST_RATE = Decimal('0')
+
+        if tenant == 'chilca':
+
+            INTEREST_RATE = Decimal('0.002')
+
 
         total_interest_rate = (
             INTEREST_RATE * cuotas
@@ -3445,7 +3564,7 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
             "subtotal": total,
 
-            "interest_rate": 0.20,
+            "interest_rate": INTEREST_RATE,
 
             "interest_amount": interest_amount,
 
