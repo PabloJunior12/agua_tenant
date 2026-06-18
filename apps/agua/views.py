@@ -62,7 +62,7 @@ class CustomPagination(PageNumberPagination):
 
 class ServiceChargeViewSet(viewsets.ModelViewSet): 
     
-    queryset = ServiceCharge.objects.all().order_by('-status')
+    queryset = ServiceCharge.objects.all().order_by('-status','-id')
     serializer_class = ServiceChargeSerializer
     filter_backends = [DjangoFilterBackend,filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['customer', 'status']  
@@ -2154,14 +2154,39 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         tenant = request.tenant.schema_name
         company = Company.objects.first()
 
-        reading_generation = ReadingGeneration.objects.order_by('-period').first()
- 
-        if not reading_generation:
-           
-           return Response({"error": "No existe una generación de lecturas"}, status=404)
+        # reading_generation = (
+        #     ReadingGeneration.objects
+        #     .order_by('-period')
+        #     .first()
+        # )
 
-        current_period = reading_generation.period
+        # print(reading_generation)
 
+        # if reading_generation:
+
+        #     current_period = reading_generation.period
+
+        # else:
+        #     # buscar el período anterior registrado
+        #     previous_generation = (
+        #         ReadingGeneration.objects
+        #         .exclude(period=None)
+        #         .order_by('-created_at')
+        #         .first()
+        #     )
+
+        #     if not previous_generation:
+        #         return Response(
+        #             {"error": "No existe una generación de lecturas"},
+        #             status=404
+        #         )
+
+        #     current_period = previous_generation.period
+
+        # print(current_period)
+
+        last_reading = Reading.objects.filter(customer_id=pk).first()
+        current_period = last_reading.period
         reading = Reading.objects.filter(
             customer_id=pk,
             period=current_period
@@ -2234,13 +2259,47 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         total_previous_debt = previous_debts.aggregate(total=Sum("amount"))["total"] or 0
 
 
+        ######################################################
+        #           OTROS CONCEPTOS PENDIENTES
+        ######################################################
+
+        pending_services = ServiceCharge.objects.filter(
+            customer=reading.customer,
+            status='pending'
+        ).exclude(
+            invoice__status='cancelled'
+        ).select_related("concept")
+
+        total_other_services = pending_services.aggregate(
+            total=Sum("amount")
+        )["total"] or 0
+
+        other_services = []
+
+        for service in pending_services:
+
+            other_services.append({
+                "concept": service.concept.name,
+                "description": service.description,
+                "amount": service.amount,
+                "created_at": service.created_at,
+            })
+
+
         if debt.paid:
 
-            total_general = total_previous_debt
+            total_general = (
+                total_previous_debt +
+                total_other_services
+            )
 
         else:
 
-            total_general = debt.amount + total_previous_debt
+            total_general = (
+                debt.amount +
+                total_previous_debt +
+                total_other_services
+            )
 
         # armamos la misma estructura que en el masivo
         readings_context = [{
@@ -2249,6 +2308,8 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             "reading": reading,
             "grouped_debts": grouped_debts,
             "total_previous_debt": total_previous_debt,
+            "total_other_services": total_other_services,
+            "other_services": other_services,
             "total_general": total_general,
         }]
 

@@ -76,7 +76,7 @@
 
 <body>
     {% for ctx in readings_context %}
-    {% with reading=ctx.reading debt=ctx.debt details=ctx.details grouped=ctx.grouped_debts total_previous=ctx.total_previous_debt total_general=ctx.total_general %}
+    {% with reading=ctx.reading debt=ctx.debt details=ctx.details other_services=ctx.other_services total_other_services=ctx.total_other_services grouped=ctx.grouped_debts total_previous=ctx.total_previous_debt total_general=ctx.total_general %}
 
     <!-- Cabecera -->
     <div class="row">
@@ -159,8 +159,8 @@
                 </tr>
             </table>
 
-            <h3 class="text-center text-uppercase">Deudas anteriores</h3>
-            <div class="me-3">
+            <h3 class="text-center text-uppercase">Deudas anteriores de consumo</h3>
+            <div class="me-3 mb-2">
                 {% if grouped %}
                 <table class="table mb-0 table-sm">
                     {% for d in grouped %}
@@ -183,6 +183,27 @@
                 {% endif %}
 
             </div>
+
+            <h3 class="text-center text-uppercase">Deudas de Otros conceptos</h3>
+            <div class="me-3">
+
+                <table class="table table-sm">
+                {% for s in other_services %}
+                <tr>
+                    <td>{{ s.description }}</td>
+                    <td class="text-end">S/ {{ s.amount }}</td>
+                </tr>
+                {% endfor %}
+
+                <tr>
+                    <td><strong>TOTAL DEUDA</strong></td>
+                    <td class="text-end">
+                        <strong>S/ {{ total_other_services }}</strong>
+                    </td>
+                </tr>
+                </table>
+            </div>
+
         </div>
 
         <div class="col">
