@@ -907,21 +907,14 @@ class RefinancingInstallmentSerializer(serializers.ModelSerializer):
         model = RefinancingInstallment
 
         fields = [
-
             'id',
-
             'number',
-
             'capital_amount',
-
             'interest_amount',
-
             'total_amount',
-
             'due_date',
-
-            'paid'
-
+            'paid',
+            'refinancing'
         ]
 
 class DebtRefinancingSerializer(serializers.ModelSerializer):
@@ -939,13 +932,9 @@ class DebtRefinancingSerializer(serializers.ModelSerializer):
 
     total_pending = serializers.SerializerMethodField()
 
-    installments_detail = (
-        RefinancingInstallmentSerializer(
-            source='installment_details',
-            many=True,
-            read_only=True
-        )
-    )
+    next_installment = serializers.SerializerMethodField()
+
+    installments_detail = serializers.SerializerMethodField()
 
     class Meta:
 
@@ -991,6 +980,8 @@ class DebtRefinancingSerializer(serializers.ModelSerializer):
             'total_paid',
 
             'total_pending',
+
+            'next_installment',
 
             'installments_detail',
 
@@ -1045,3 +1036,43 @@ class DebtRefinancingSerializer(serializers.ModelSerializer):
         )['total']
 
         return total or 0
+
+    ####################################################
+    # PRÓXIMA CUOTA
+    ####################################################
+
+    def get_next_installment(self, obj):
+
+        installment = (
+            obj.installment_details
+            .filter(paid=False)
+            .order_by('due_date', 'number')
+            .first()
+        )
+
+        if not installment:
+            return None
+
+        return {
+            "id": installment.id,
+            "number": installment.number,
+            "total_amount": installment.total_amount,
+            "due_date": installment.due_date,
+            "paid": installment.paid
+        }
+
+    ####################################################
+    # DETALLE CUOTAS
+    ####################################################
+
+    def get_installments_detail(self, obj):
+
+        installments = (
+            obj.installment_details
+            .order_by('number')
+        )
+
+        return RefinancingInstallmentSerializer(
+            installments,
+            many=True
+        ).data

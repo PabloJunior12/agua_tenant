@@ -2233,7 +2233,8 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         previous_debts = Debt.objects.filter(
             customer=reading.customer,
             paid=False,
-            period__lt=reading.period
+            period__lt=reading.period,
+            is_refinanced = False
         ).order_by("period")
 
         # Agrupar por año
@@ -2286,20 +2287,45 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             })
 
 
+        ######################################################
+        #           CUOTA PENDIENTE REFINANCIAMIENTO
+        ######################################################
+
+        pending_installment = (
+            RefinancingInstallment.objects
+            .filter(
+                refinancing__customer=reading.customer,
+                paid=False,
+                refinancing__paid=False
+            )
+            .select_related("refinancing")
+            .order_by("due_date", "number")
+            .first()
+        )
+
+        refinancing_data = None
+        total_refinancing = 0
+
+        if pending_installment:
+
+            refinancing_data = {
+                "number": pending_installment.number,
+                "total_amount": pending_installment.total_amount,
+                "due_date": pending_installment.due_date,
+                "refinancing_id": pending_installment.refinancing.id,
+            }
+
+            total_refinancing = pending_installment.total_amount
+
         if debt.paid:
 
-            total_general = (
-                total_previous_debt +
-                total_other_services
-            )
+            total_general = (total_previous_debt + total_other_services + total_refinancing)
 
         else:
 
-            total_general = (
-                debt.amount +
-                total_previous_debt +
-                total_other_services
-            )
+            total_general = ( debt.amount + total_previous_debt + total_other_services + total_refinancing)
+
+        total_previous_debt_global = (total_previous_debt +  total_other_services + total_refinancing)
 
         # armamos la misma estructura que en el masivo
         readings_context = [{
@@ -2309,9 +2335,12 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             "grouped_debts": grouped_debts,
             "total_previous_debt": total_previous_debt,
             "total_other_services": total_other_services,
+            "total_previous_debt_global" : total_previous_debt_global,
             "other_services": other_services,
+            "refinancing_data": refinancing_data,
             "total_general": total_general,
         }]
+        
 
         if tenant == 'chilca':
 
@@ -2602,14 +2631,71 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
             total_previous_debt = previous_debts.aggregate(total=Sum("amount"))["total"] or 0
 
+            ######################################################
+            #           OTROS CONCEPTOS PENDIENTES
+            ######################################################
+
+            pending_services = ServiceCharge.objects.filter(
+                customer=reading.customer,
+                status='pending'
+            ).exclude(
+                invoice__status='cancelled'
+            ).select_related("concept")
+
+            total_other_services = pending_services.aggregate(
+                total=Sum("amount")
+            )["total"] or 0
+
+            other_services = []
+
+            for service in pending_services:
+
+                other_services.append({
+                    "concept": service.concept.name,
+                    "description": service.description,
+                    "amount": service.amount,
+                    "created_at": service.created_at,
+                })
+
+            ######################################################
+            #           CUOTA PENDIENTE REFINANCIAMIENTO
+            ######################################################
+
+            pending_installment = (
+                RefinancingInstallment.objects
+                .filter(
+                    refinancing__customer=reading.customer,
+                    paid=False,
+                    refinancing__paid=False
+                )
+                .select_related("refinancing")
+                .order_by("due_date", "number")
+                .first()
+            )
+
+            refinancing_data = None
+            total_refinancing = 0
+
+            if pending_installment:
+
+                refinancing_data = {
+                    "number": pending_installment.number,
+                    "total_amount": pending_installment.total_amount,
+                    "due_date": pending_installment.due_date,
+                    "refinancing_id": pending_installment.refinancing.id,
+                }
+
+                total_refinancing = pending_installment.total_amount
 
             if debt.paid:
 
-                total_general = total_previous_debt
+                total_general = (total_previous_debt + total_other_services + total_refinancing)
 
             else:
-                
-                total_general = debt.amount + total_previous_debt
+
+                total_general = ( debt.amount + total_previous_debt + total_other_services + total_refinancing)
+
+            total_previous_debt_global = (total_previous_debt +  total_other_services + total_refinancing)
 
             all_readings_context.append({
                 "debt": debt,
@@ -2617,6 +2703,10 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 "reading": reading,
                 "grouped_debts": grouped_debts,
                 "total_previous_debt": total_previous_debt,
+                "total_other_services": total_other_services,
+                "total_previous_debt_global" : total_previous_debt_global,
+                "other_services": other_services,
+                "refinancing_data": refinancing_data,
                 "total_general": total_general,
             })
         

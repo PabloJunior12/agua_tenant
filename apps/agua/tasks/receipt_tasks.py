@@ -1,10 +1,10 @@
 from apps.tenant.models import ReceiptBatch
-from apps.agua.models import Reading, Debt, Company, Zona, CashConcept
+from apps.agua.models import Reading, Debt, Company, Zona, CashConcept, ServiceCharge, RefinancingInstallment
 from django_tenants.utils import schema_context
 from django.db.models import Count
 from django.template.loader import render_to_string
 from django.db.models.functions import Cast, Coalesce
-from django.db.models import Prefetch, IntegerField
+from django.db.models import Prefetch, IntegerField, Sum
 from django.utils.timezone import now
 from weasyprint import HTML
 from decimal import Decimal
@@ -243,7 +243,71 @@ def build_html(readings, company, logo_path, zona, schema_name, master_concepts)
             Decimal("0.00")
         )
 
-        total_general = debt.amount + total_previous_debt
+        ######################################################
+        #           OTROS CONCEPTOS PENDIENTES
+        ######################################################
+
+        pending_services = ServiceCharge.objects.filter(
+            customer=reading.customer,
+            status='pending'
+        ).exclude(
+            invoice__status='cancelled'
+        ).select_related("concept")
+
+        total_other_services = pending_services.aggregate(
+            total=Sum("amount")
+        )["total"] or 0
+
+        other_services = []
+
+        for service in pending_services:
+
+            other_services.append({
+                "concept": service.concept.name,
+                "description": service.description,
+                "amount": service.amount,
+                "created_at": service.created_at,
+            })
+
+        ######################################################
+        #           CUOTA PENDIENTE REFINANCIAMIENTO
+        ######################################################
+
+        pending_installment = (
+            RefinancingInstallment.objects
+            .filter(
+                refinancing__customer=reading.customer,
+                paid=False,
+                refinancing__paid=False
+            )
+            .select_related("refinancing")
+            .order_by("due_date", "number")
+            .first()
+        )
+
+        refinancing_data = None
+        total_refinancing = 0
+
+        if pending_installment:
+
+            refinancing_data = {
+                "number": pending_installment.number,
+                "total_amount": pending_installment.total_amount,
+                "due_date": pending_installment.due_date,
+                "refinancing_id": pending_installment.refinancing.id,
+            }
+
+            total_refinancing = pending_installment.total_amount
+
+        if debt.paid:
+
+            total_general = (total_previous_debt + total_other_services + total_refinancing)
+
+        else:
+
+            total_general = ( debt.amount + total_previous_debt + total_other_services + total_refinancing)
+
+        total_previous_debt_global = (total_previous_debt +  total_other_services + total_refinancing)
 
         all_data.append({
             "debt": debt,
@@ -251,6 +315,10 @@ def build_html(readings, company, logo_path, zona, schema_name, master_concepts)
             "reading": reading,
             "grouped_debts": grouped_debts,
             "total_previous_debt": total_previous_debt,
+            "total_other_services": total_other_services,
+            "total_previous_debt_global" : total_previous_debt_global,
+            "other_services": other_services,
+            "refinancing_data": refinancing_data,
             "total_general": total_general,
         })  
 

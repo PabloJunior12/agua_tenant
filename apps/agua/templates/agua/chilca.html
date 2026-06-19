@@ -20,7 +20,7 @@
         .page {
             width: 148mm;
             height: 210mm;
-            /* background-image: url("{{ background_image }}");  */
+            background-image: url("{{ background_image }}"); 
             background-size: cover;
             background-repeat: no-repeat;
             position: relative;
@@ -186,6 +186,7 @@
 
         .label {
             width: 70%;
+            font-size: 10px;
         }
 
 
@@ -288,7 +289,7 @@
 
 <body>
     {% for ctx in readings_context %}
-    {% with reading=ctx.reading debt=ctx.debt details=ctx.details grouped=ctx.grouped_debts total_previous=ctx.total_previous_debt total_general=ctx.total_general %}
+    {% with reading=ctx.reading debt=ctx.debt details=ctx.details refinancing_data=ctx.refinancing_data other_services=ctx.other_services total_other_services=ctx.total_other_services total_previous_debt_global=ctx.total_previous_debt_global grouped=ctx.grouped_debts total_previous=ctx.total_previous_debt total_general=ctx.total_general %}
 
     <div class="page">
         <div class="name">
@@ -350,20 +351,33 @@
 
                 <div class="titulo">DEUDAS ANTERIORES</div>
 
-                {% if grouped %}
+             
                 <table>
-
+                    {% if grouped %}
                     {% for d in grouped %}
                     <tr>
                         <td class="label">
                             {{ d.from_month }} - {{ d.to_month }} {{ d.year }}
                         </td>
 
-                        <td class="amount">
-                            {{ d.total }}
-                        </td>
+                        <td class="amount">S/ {{ d.total }}</td>
                     </tr>
                     {% endfor %}
+                     {% endif %}
+
+                    {% for s in other_services %}
+                    <tr>
+                        <td class="label">{{ s.concept }}</td>
+                        <td class="amount">S/ {{ s.amount }}</td>
+                    </tr>
+                    {% endfor %}
+
+                    {% if refinancing_data %}
+                    <tr>
+                        <td>Cuota N° {{ refinancing_data.number }}</td>
+                        <td class="text-end">S/ {{ refinancing_data.total_amount }}</td>
+                    </tr>
+                    {% endif %}
 
                     <tr class="line-top total-row">
                         <td class="label bold">
@@ -371,12 +385,12 @@
                         </td>
 
                         <td class="amount bold">
-                            {{ total_previous }}
+                            {{ total_previous_debt_global }}
                         </td>
                     </tr>
 
                 </table>
-                {% endif %}
+             
             </div>
 
             <!-- FACTURACION -->
@@ -411,7 +425,7 @@
                         </td>
 
                         <td class="amount">
-                            S/ {{ total_previous }}
+                            S/ {{ total_previous_debt_global }}
                         </td>
                     </tr>
                 </table>
