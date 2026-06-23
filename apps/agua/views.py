@@ -909,14 +909,6 @@ class CashBoxViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         movimientos = cashbox.movements.all()
         egresos = cashbox.outflows.all()
 
-        # SYSTEM_KEYS = (
-        #     ("price_water", "Precio agua"),
-        #     ("price_sewer", "Precio alcantarillado"),
-        #     ("price_fixed_charge", "Precio cargo fijo"),
-        #     ("price_clean", "Precio limpieza"),
-        #     ("price_igv", "Precio Igv"),
-        # )
-
         PERIOD_CONCEPTS = {
             "price_water",
             "price_sewer",
@@ -1007,9 +999,15 @@ class CashBoxViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             # Convertir a lista
             facturas_list = []
             total_concepto = 0
-            for f in facturas_dict.values():
+
+            facturas_ordenadas = sorted(
+                facturas_dict.values(),
+                key=lambda x: x["code"]
+            )
+
+            for f in facturas_ordenadas:
                 total_concepto += f["total"]
-                f["pagos"] = dict(f["pagos"])  # pasar defaultdict a dict normal
+                f["pagos"] = dict(f["pagos"])
                 facturas_list.append(f)
 
             conceptos_data.append({
@@ -1156,9 +1154,15 @@ class DailyCashReportViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             # Convertir a lista
             facturas_list = []
             total_concepto = 0
-            for f in facturas_dict.values():
+
+            facturas_ordenadas = sorted(
+                facturas_dict.values(),
+                key=lambda x: x["code"]
+            )
+
+            for f in facturas_ordenadas:
                 total_concepto += f["total"]
-                f["pagos"] = dict(f["pagos"])  # pasar defaultdict a dict normal
+                f["pagos"] = dict(f["pagos"])
                 facturas_list.append(f)
 
             conceptos_data.append({
@@ -3800,7 +3804,6 @@ class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
         if company and company.ruc:
             logo_path = request.build_absolute_uri(f"/media/{company.ruc}.jpeg")
 
-        print(invoice.reference)
 
         context = {
             "invoice": invoice,
@@ -3817,6 +3820,54 @@ class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
         }
         
         template = get_template('agua/invoice.html')
+        html_string = template.render(context)
+
+        pdf_buffer = io.BytesIO()
+   
+        HTML(string=html_string, base_url=request.build_absolute_uri()).write_pdf(
+            pdf_buffer
+        )
+
+        file_name = f"ticket_{invoice.id}.pdf"
+        pdf_buffer.seek(0)
+        response = HttpResponse(pdf_buffer.read(), content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="{file_name}"'
+        return response
+
+    @action(detail=True, methods=['get'], url_path='ticket-a5')
+    def ticket_pdf_a5(self, request, pk=None, **kwargs):
+
+        invoice = get_object_or_404(Invoice, id=pk)
+
+        # Usamos la relación inversa para evitar consultas innecesarias
+        payments_debts = invoice.invoice_debts.select_related('debt').order_by('debt__period')
+        payments_concepts = invoice.invoice_concepts.select_related('concept').order_by('concept__code')
+        payments_installments = invoice.invoice_installments.select_related('installment__refinancing').order_by('installment__number')
+
+        company = Company.objects.first()
+
+
+        # Ruta al logo según el RUC
+        logo_path = None
+        if company and company.ruc:
+            logo_path = request.build_absolute_uri(f"/media/{company.ruc}.jpeg")
+
+
+        context = {
+            "invoice": invoice,
+            "customer": invoice.customer,
+            "concepts": payments_concepts,
+            "payments": payments_debts,
+            "installments": payments_installments,  # 👈 NUEVO
+            "total_paid": sum((p.total for p in payments_debts), 0),
+            "total_paid_concept": sum((p.total for p in payments_concepts), 0),
+            # "total_paid_installments": sum((p.total for p in payments_installments), 0),  # 👈 opcional
+            "company_name": company.name if company else "",
+            "company_ruc": company.ruc if company else "",
+            "company_logo": logo_path,
+        }
+        
+        template = get_template('agua/invoice_a5.html')
         html_string = template.render(context)
 
         pdf_buffer = io.BytesIO()

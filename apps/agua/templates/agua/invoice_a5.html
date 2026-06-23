@@ -1,0 +1,318 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Recibo de Pago</title>
+
+    <style>
+
+        @page {
+            size: A5 landscape;
+            margin: 4mm;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 8px;
+            margin: 0;
+            padding: 0;
+        }
+
+        .page {
+            display: flex;
+            flex-direction: row;
+            width: 100%;
+            height: 100%;
+        }
+
+        .ticket {
+            width: 50%;
+            padding: 4mm;
+            box-sizing: border-box;
+            border-right: 1px dashed #555;
+            position: relative;
+        }
+
+        .ticket:last-child {
+            border-right: none;
+        }
+
+        .header {
+            text-align: center;
+        }
+
+        .logo {
+            max-width: 90px;
+            height: auto;
+            margin-bottom: 3px;
+        }
+
+        .company-info h2 {
+            margin: 0;
+            font-size: 10px;
+        }
+
+        .company-info p {
+            margin: 0;
+            font-size: 8px;
+        }
+
+        hr {
+            border: none;
+            border-top: 1px dashed #666;
+            margin: 3px 0;
+        }
+
+        .invoice-info,
+        .customer-info {
+            font-size: 8px;
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 3px;
+        }
+
+        .table th,
+        .table td {
+            padding: 1px 0;
+            font-size: 8px;
+        }
+
+        .table th {
+            border-bottom: 1px solid #000;
+            text-align: left;
+        }
+
+        .right {
+            text-align: right;
+        }
+
+        .total-box {
+            border-top: 1px solid #000;
+            margin-top: 4px;
+            padding-top: 3px;
+            text-align: right;
+            font-size: 9px;
+            font-weight: bold;
+        }
+
+        .footer {
+            margin-top: 6px;
+            text-align: center;
+            font-size: 7px;
+        }
+
+        .watermark {
+            position: absolute;
+            top: 40%;
+            left: 10%;
+            width: 80%;
+            text-align: center;
+            font-size: 28px;
+            font-weight: bold;
+            opacity: 0.12;
+            transform: rotate(-25deg);
+        }
+
+        .cut-line {
+            position: absolute;
+            top: 0;
+            right: -6px;
+            height: 100%;
+            border-right: 2px dashed #000;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+<div class="page">
+
+    {% for copy in "12" %}
+
+    <div class="ticket">
+
+        {% if not forloop.last %}
+        <div class="cut-line"></div>
+        {% endif %}
+
+        {% if invoice.status == "cancelled" %}
+        <div class="watermark">ANULADO</div>
+        {% endif %}
+
+        <!-- HEADER -->
+        <div class="header">
+
+            {% if company_logo %}
+                <img src="{{ company_logo }}" class="logo">
+            {% endif %}
+
+            <div class="company-info">
+                <h2>{{ company_name }}</h2>
+                <p>RUC: {{ company_ruc }}</p>
+            </div>
+
+        </div>
+
+        <hr>
+
+        <!-- FACTURA -->
+        <div class="invoice-info">
+
+            <p>
+                <strong>N°:</strong>
+                {{ invoice.code }}
+
+                {% if invoice.number_reference %}
+                    - {{ invoice.number_reference }}
+                {% endif %}
+            </p>
+
+            <p>
+                <strong>Fecha:</strong>
+                {{ invoice.date|date:"d/m/Y" }}
+            </p>
+
+        </div>
+
+        <hr>
+
+        <!-- CLIENTE -->
+        <!-- Datos del cliente -->
+        <div class="customer-info">
+            {% if invoice.customer.codigo == "00000" %}
+                <!-- Si es un pagador externo -->
+                <p><strong>Cliente:</strong> {{ invoice.name_optional|default:"(Sin nombre)" }}</p>
+                <p><strong>Documento:</strong> {{ invoice.number_optional|default:"(Sin documento)" }}</p>
+            {% else %}
+                <!-- Si es un cliente registrado -->
+                <p><strong>Codigo:</strong> {{ invoice.customer.codigo }}</p>
+                <p><strong>Cliente:</strong> {{ invoice.customer.full_name }}</p>
+                <p><strong>Dirección:</strong> {{ invoice.customer.address|default:"(Sin dirección)" }}</p>
+                <p><strong>Documento:</strong> {{ invoice.customer.number|default:"(Sin documento)" }}</p>
+            {% endif %}
+        </div>
+
+        <hr>
+
+        <!-- Detalle de pagos -->
+         {% if payments %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Periodo</th>
+                    <th style="text-align:right;">Total (S/)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in payments %}
+                <tr>
+                    <td>Pago de Consumo {{ item.debt.period|date:"F Y"|capfirst }}</td>
+                    <td style="text-align:right;">
+                        {% if invoice.status == "cancelled" %}
+                        0.00
+                        {% else %}
+                       {{ item.total|stringformat:".2f" }}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+
+        {% if concepts %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th style="width: 20%;">Codigo</th>
+                    <th style="width: 50%;">Concepto</th>
+                    <th style="width: 30%; text-align:right;">Total (S/)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in concepts %}
+                <tr>
+                    <td>{{ item.concept.code }}</td>
+                    <td>{{ item.concept.name }}</td>
+                    <td style="text-align:right;">
+                        {% if invoice.status == "cancelled" %}
+                        0.00
+                        {% else %}
+                        {{ item.total|stringformat:".2f" }}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+        {% if installments %}
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Cuota</th>
+                    <th>Ref.</th>
+                    <th style="text-align:right;">Total (S/)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in installments %}
+                <tr>
+                    <td>
+                        Cuota {{ item.installment.number }}
+                    </td>
+
+                    <td>
+                        Ref. #{{ item.installment.refinancing.id }}
+                    </td>
+
+                    <td style="text-align:right;">
+                        {% if invoice.status == "cancelled" %}
+                        0.00
+                        {% else %}
+                        {{ item.total|stringformat:".2f" }}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+
+        <!-- Total -->
+        <div class="total-box">
+
+            <p><strong>Total Pagado:</strong> S/
+
+                {% if invoice.status == "cancelled" %}
+                0.00
+                {% else %}
+                {{ invoice.total|stringformat:".2f" }}
+                {% endif %}
+
+            </p>
+        </div>
+
+        <!-- Pie -->
+        <div class="footer">
+            <p>Gracias por su pago</p>
+            <p>Este documento es válido como comprobante</p>
+        </div>
+
+    </div>
+
+    {% endfor %}
+
+</div>
+
+</body>
+</html>
