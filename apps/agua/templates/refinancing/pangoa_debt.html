@@ -1,0 +1,456 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+
+    <style>
+        @page {
+            size: A4;
+            margin: 22px 28px;
+        }
+
+        body {
+
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            line-height: 1.45;
+            color: #2b2b2b;
+
+        }
+
+        /* =========================
+   HEADER
+========================= */
+
+        .header {
+
+            margin-bottom: 12px;
+
+        }
+
+        .header-table {
+
+            width: 100%;
+            border: none;
+
+        }
+
+        .header-table td {
+
+            border: none;
+            vertical-align: middle;
+
+        }
+
+        .logo {
+
+            width: 70px;
+
+        }
+
+        .entity {
+
+            text-align: center;
+
+        }
+
+        .entity h1 {
+
+            margin: 0;
+            font-size: 20px;
+            color: #2d6a4f;
+            font-weight: bold;
+
+        }
+
+        .entity p {
+
+            margin: 2px 0 0;
+            font-size: 10px;
+            color: #666;
+
+        }
+
+        /* =========================
+   TITLE
+========================= */
+
+        .title-box {
+
+            background: #2d6a4f;
+            color: white;
+            padding: 8px;
+            text-align: center;
+            border-radius: 4px;
+            margin-bottom: 18px;
+
+        }
+
+        .title {
+
+            margin: 0;
+            font-size: 14px;
+            font-weight: bold;
+            text-transform: uppercase;
+
+        }
+
+        /* =========================
+   CONTENT
+========================= */
+
+        .paragraph {
+
+            text-align: justify;
+            margin-bottom: 10px;
+
+        }
+
+        .section-title {
+
+            font-size: 13px;
+            font-weight: bold;
+            color: #2d6a4f;
+            border-left: 4px solid #2d6a4f;
+            padding-left: 8px;
+            margin-top: 14px;
+            margin-bottom: 10px;
+
+        }
+
+        /* =========================
+   RESUMEN
+========================= */
+
+        .summary-box {
+
+            background: #f7f7f7;
+            border: 1px solid #d9d9d9;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 14px;
+
+        }
+
+        .summary-box ul {
+
+            margin: 0;
+            padding-left: 18px;
+
+        }
+
+        .summary-box li {
+
+            margin-bottom: 6px;
+
+        }
+
+        /* =========================
+   TABLE
+========================= */
+
+        table {
+
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 8px;
+            margin-bottom: 14px;
+
+        }
+
+        thead {
+
+            background: #2d6a4f;
+            color: white;
+
+        }
+
+        th {
+
+            padding: 6px;
+            font-size: 11px;
+            text-align: center;
+            border: 1px solid #dcdcdc;
+
+        }
+
+        td {
+
+            border: 1px solid #dcdcdc;
+            padding: 6px;
+            font-size: 11px;
+
+        }
+
+        tbody tr:nth-child(even) {
+
+            background: #f8f8f8;
+
+        }
+
+        .text-end {
+
+            text-align: right;
+
+        }
+
+        .text-center {
+
+            text-align: center;
+
+        }
+
+        /* =========================
+   NOTICE
+========================= */
+
+        .notice {
+
+            background: #fff8e6;
+            border-left: 4px solid #e0a800;
+            padding: 8px;
+            margin-top: 10px;
+            margin-bottom: 10px;
+            font-size: 11px;
+
+        }
+
+        /* =========================
+   SIGNATURE
+========================= */
+
+        .signature-section {
+
+            margin-top: 35px;
+            text-align: center;
+
+        }
+
+        .signature-line {
+
+            width: 220px;
+            border-top: 1px solid #000;
+            margin: auto;
+            margin-bottom: 6px;
+
+        }
+
+        .signature-name {
+
+            font-weight: bold;
+            font-size: 11px;
+
+        }
+
+        .dni {
+
+            font-size: 10px;
+            color: #555;
+
+        }
+
+        /* =========================
+   FOOTER
+========================= */
+
+        .footer {
+
+            margin-top: 20px;
+            text-align: center;
+            font-size: 9px;
+            color: #888;
+
+        }
+    </style>
+
+</head>
+
+<body>
+
+    <!-- HEADER -->
+
+    <div class="header">
+
+        <table class="header-table">
+
+            <tr>
+
+                <td width="18%">
+
+                    <img src="{{ logo_url }}" class="logo">
+
+                </td>
+
+                <td class="entity">
+
+                    <h1>MUNICIPALIDAD DISTRITAL DE PANGOA</h1>
+
+                    <p>Gestión Edil 2023 - 2026</p>
+
+                </td>
+
+            </tr>
+
+        </table>
+
+    </div>
+
+    <!-- TITLE -->
+
+    <div class="title-box">
+
+        <h2 class="title">
+            CARTA DE COMPROMISO
+        </h2>
+
+    </div>
+
+    <!-- BODY -->
+
+    <div class="paragraph">
+
+        Yo, <strong>{{ ref.customer.full_name }}</strong>,
+        identificado(a) con DNI N°
+        <strong>{{ ref.customer.document_number|default:"____________" }}</strong>,
+        con domicilio en
+        <strong>{{ ref.customer.address|default:"____________________" }}</strong>,
+        N° Celular
+        <strong>{{ ref.customer.phone|default:"____________________" }}</strong>,
+        asumo voluntariamente el compromiso de cancelar la deuda de consumo del servicio de agua bajo las siguientes condiciones:
+
+    </div>
+
+    <!-- DETALLE -->
+
+    <div class="section-title">
+        1. Detalle de la Deuda
+    </div>
+
+    <div class="summary-box">
+
+        <ul>
+
+            <li>
+                <strong>Monto Total:</strong>
+                S/ {{ ref.total_amount }}
+            </li>
+
+            <li>
+                <strong>Cuota Inicial:</strong>
+                S/ {{ ref.initial_payment }}
+            </li>
+
+            <li>
+                <strong>Saldo Restante:</strong>
+                S/ {{ ref.total_amount_with_interest }}
+            </li>
+
+        </ul>
+
+    </div>
+
+    <!-- CRONOGRAMA -->
+
+    <div class="section-title">
+        2. Cronograma de Pagos
+    </div>
+
+    <table>
+
+        <thead>
+
+            <tr>
+
+                <th width="20%">Cuota</th>
+                <th width="40%">Fecha de Vencimiento</th>
+                <th width="40%">Monto</th>
+
+            </tr>
+
+        </thead>
+
+        <tbody>
+
+            {% for item in installments %}
+
+            <tr>
+
+                <td class="text-center">
+                    {{ item.number }}
+                </td>
+
+                <td class="text-center">
+                    {{ item.due_date|date:"d/m/Y" }}
+                </td>
+
+                <td class="text-end">
+                    S/ {{ item.total_amount }}
+                </td>
+
+            </tr>
+
+            {% endfor %}
+
+        </tbody>
+
+    </table>
+
+    <!-- SERVICIO -->
+
+    <div class="section-title">
+        3. Pago por Servicio Mensual
+    </div>
+
+    <div class="paragraph">
+
+        Entiendo que el cumplimiento de este acuerdo es fundamental para mantener la continuidad del servicio. Asimismo, me comprometo a pagar puntualmente mis recibos (del mes actual) en paralelo a estas cuotas de convenio.
+
+    </div>
+
+    <div class="notice">
+
+        <strong>Nota:</strong>
+        El incumplimiento de una de las cuotas pactadas facultará a la entidad prestadora del servicio a proceder con el corte del suministro y/o las acciones legales correspondientes
+
+    </div>
+
+    <!-- CONFORMIDAD -->
+
+    <div class="paragraph">
+
+        En señal de conformidad, firmo el presente documento a los
+        <strong>{{ ref.created_at|date:"d" }}</strong> días del mes de
+        <strong>{{ ref.created_at|date:"F" }}</strong> del año
+        <strong>{{ ref.created_at|date:"Y" }}</strong>.
+
+    </div>
+
+    <!-- FIRMA -->
+
+    <div class="signature-section">
+
+        <div class="signature-line"></div>
+
+        <div class="signature-name">
+            {{ ref.customer.full_name }}
+        </div>
+
+        <div class="dni">
+            DNI: {{ ref.customer.document_number }}
+        </div>
+
+    </div>
+
+    <!-- FOOTER -->
+
+    <div class="footer">
+
+        Municipalidad Distrital de Pangoa
+
+    </div>
+
+</body>
+
+</html>

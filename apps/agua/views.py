@@ -3800,6 +3800,8 @@ class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
         if company and company.ruc:
             logo_path = request.build_absolute_uri(f"/media/{company.ruc}.jpeg")
 
+        print(invoice.reference)
+
         context = {
             "invoice": invoice,
             "customer": invoice.customer,
@@ -4760,15 +4762,29 @@ class DebtRefinancingViewSet(TenantSafeMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def report(self, request, pk=None):
 
+        tenant = request.tenant.schema_name
         company = Company.objects.first()
-
-        logo_url = request.build_absolute_uri(
-            settings.MEDIA_URL + f'{company.ruc}.jpeg'
-        )
-
+        logo_url = request.build_absolute_uri(settings.MEDIA_URL + f'{company.ruc}.jpeg')
         refinancing = self.get_object()
+
+        template = None
+
+        if tenant == 'chilca':
+
+            template = 'refinancing/report.html'
+
+        else:
+
+            if refinancing.type == 'service':
+
+                template = 'refinancing/pangoa_service.html'
+
+            elif refinancing.type == 'debt':
+
+                template = 'refinancing/pangoa_debt.html'
+
         installments = refinancing.installment_details.all()
-        html_string = render_to_string('refinancing/report.html',
+        html_string = render_to_string(template,
 
             {
                 'ref': refinancing,
@@ -4778,6 +4794,12 @@ class DebtRefinancingViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
         )
 
+        print({
+                'ref': refinancing,
+                'installments': installments,
+                'logo_url': logo_url
+            })
+
         html = HTML(
             string=html_string,
             base_url=request.build_absolute_uri('/')
@@ -4785,14 +4807,8 @@ class DebtRefinancingViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
         pdf_file = html.write_pdf()
 
-        response = HttpResponse(
-            pdf_file,
-            content_type='application/pdf'
-        )
-
-        response[
-            'Content-Disposition'
-        ] = f'inline; filename=refinanciamiento_{refinancing.id}.pdf'
+        response = HttpResponse(pdf_file, content_type='application/pdf')
+        response['Content-Disposition'] = f'inline; filename=refinanciamiento_{refinancing.id}.pdf'
 
         return response
 

@@ -169,7 +169,9 @@
             <tbody>
                 {% for item in payments %}
                 <tr>
-                    <td>{{ item.debt.period|date:"F Y"|capfirst }}</td>
+                    <td>
+                        Pago de Consumo {{ item.debt.period|date:"M Y" }}
+                    </td>
                     <td style="text-align:right;">
                         {% if invoice.status == "cancelled" %}
                         0.00
