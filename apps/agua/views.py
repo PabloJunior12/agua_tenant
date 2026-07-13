@@ -2324,7 +2324,7 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         if tenant == 'chilca':
 
-            background_image = request.build_absolute_uri(f"/media/chilca.png")
+            background_image = request.build_absolute_uri(f"/media/chilca.jpeg")
 
             html = render_to_string("agua/chilca.html", {
                 "readings_context": readings_context,
