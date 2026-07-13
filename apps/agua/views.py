@@ -695,7 +695,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
 
             df = pd.read_excel(
                 file,
-                sheet_name=2,
+                sheet_name=0,
                 engine='openpyxl'
             )
 
@@ -734,7 +734,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             if not codigo:
                 skipped += 1
                 continue
-
+            
             # ==========================================
             # CLIENTE
             # ==========================================
@@ -743,10 +743,12 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                 state='active'
             ).first()
 
+            
             if not customer:
                 skipped += 1
                 continue
 
+      
             customer.observation = observation
             customer.save()
 
@@ -757,6 +759,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                 customer=customer
             ).first()
 
+    
             if not assignment or not assignment.meter:
                 skipped += 1
                 continue
@@ -767,17 +770,20 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             # LECTURA DE MAYO
             # ==========================================
             current_reading = to_decimal_or_none(
-                row.get('LEC. MAYO')
+                row.get('LEC. JUNIO')
             )
 
+            print(current_reading)
             if current_reading is None:
                 skipped += 1
                 continue
 
+            print('si', current_reading)
+
             # ==========================================
             # PERIODO
             # ==========================================
-            period_date = date(2026, 5, 1)
+            period_date = date(2026, 6, 1)
 
             # ==========================================
             # VALIDAR SI YA EXISTE
@@ -843,7 +849,8 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                         consumption=consumption,
 
                         status='normal',
-                        has_meter=True
+                        has_meter=True,
+                        observation=observation
                     )
 
                     created += 1
@@ -2157,37 +2164,6 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         tenant = request.tenant.schema_name
         company = Company.objects.first()
-
-        # reading_generation = (
-        #     ReadingGeneration.objects
-        #     .order_by('-period')
-        #     .first()
-        # )
-
-        # print(reading_generation)
-
-        # if reading_generation:
-
-        #     current_period = reading_generation.period
-
-        # else:
-        #     # buscar el período anterior registrado
-        #     previous_generation = (
-        #         ReadingGeneration.objects
-        #         .exclude(period=None)
-        #         .order_by('-created_at')
-        #         .first()
-        #     )
-
-        #     if not previous_generation:
-        #         return Response(
-        #             {"error": "No existe una generación de lecturas"},
-        #             status=404
-        #         )
-
-        #     current_period = previous_generation.period
-
-        # print(current_period)
 
         last_reading = Reading.objects.filter(customer_id=pk).first()
         current_period = last_reading.period
@@ -3775,6 +3751,66 @@ class RefinancingInstallmentViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         return queryset.order_by('number')
 
+    @action(detail=True,methods=['patch'],url_path='change-paid')
+    @transaction.atomic
+    def change_paid(self, request, pk=None):
+
+        installment = self.get_object()
+        paid = request.data.get('paid')
+
+        if paid is None:
+            return Response(
+                {
+                    "error": "Debe enviar el campo 'paid'."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not isinstance(paid, bool):
+            return Response(
+                {
+                    "error": (
+                        "El campo 'paid' debe ser un valor booleano "
+                        "(true o false)."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Actualizar cuota
+        installment.paid = paid
+        installment.save(update_fields=['paid'])
+
+        # Actualizar estado general del refinanciamiento
+        refinancing = installment.refinancing
+
+        all_paid = not refinancing.installment_details.filter(
+            paid=False
+        ).exists()
+
+        refinancing.paid = all_paid
+        refinancing.save(update_fields=['paid'])
+
+        return Response(
+            {
+                "message": (
+                    "Cuota marcada como pagada correctamente."
+                    if paid
+                    else "Pago de la cuota retirado correctamente."
+                ),
+                "installment": {
+                    "id": installment.id,
+                    "number": installment.number,
+                    "paid": installment.paid
+                },
+                "refinancing": {
+                    "id": refinancing.id,
+                    "paid": refinancing.paid
+                }
+            },
+            status=status.HTTP_200_OK
+        )
+
 class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
     queryset = Invoice.objects.all().order_by('-id')
@@ -4954,6 +4990,70 @@ class DebtRefinancingViewSet(TenantSafeMixin, viewsets.ModelViewSet):
             "message": "Cuota pagada correctamente"
 
         })
+
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
+        refinancing = self.get_object()
+
+        # Verificar si existe alguna cuota pagada
+        has_paid_installments = refinancing.installment_details.filter(
+            paid=True
+        ).exists()
+
+        if has_paid_installments:
+            return Response(
+                {
+                    "error": (
+                        "No se puede eliminar el refinanciamiento "
+                        "porque tiene una o más cuotas pagadas."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Restaurar los servicios relacionados
+        if refinancing.type == 'service':
+
+            service_charge_ids = refinancing.service_details.values_list(
+                'service_charge_id',
+                flat=True
+            )
+
+            ServiceCharge.objects.filter(
+                id__in=service_charge_ids
+            ).update(
+                status='pending',
+                is_refinanced=False
+            )
+
+        # Restaurar las deudas relacionadas
+        elif refinancing.type == 'debt':
+
+            debt_ids = refinancing.details.exclude(
+                debt_id__isnull=True
+            ).values_list(
+                'debt_id',
+                flat=True
+            )
+
+            Debt.objects.filter(
+                id__in=debt_ids
+            ).update(
+                is_refinanced=False
+            )
+
+        # Por CASCADE se eliminan automáticamente:
+        # - RefinancingInstallment
+        # - DebtRefinancingDetail
+        # - ServiceRefinancingDetail
+        refinancing.delete()
+
+        return Response(
+            {
+                "message": "Refinanciamiento eliminado correctamente."
+            },
+            status=status.HTTP_200_OK
+        )
 
 class AtypicalConsumptionReportExcelView(TenantSafeMixin, APIView):
 
