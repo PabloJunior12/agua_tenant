@@ -5556,3 +5556,236 @@ class AtypicalConsumptionReportExcelView(TenantSafeMixin, APIView):
         wb.save(response)
 
         return response
+
+class DebtByConceptReportAPIView(TenantSafeMixin, APIView):
+
+    def get(self, request):
+
+        month = request.query_params.get("month")  # 2026-01
+        year = request.query_params.get("year")    # 2026
+
+        # =====================================================
+        # VALIDAR FILTROS
+        # =====================================================
+
+        filter_year = None
+        filter_month = None
+
+        if month:
+            try:
+                date = datetime.strptime(month, "%Y-%m")
+                filter_year = date.year
+                filter_month = date.month
+            except ValueError:
+                return Response(
+                    {
+                        "detail": "El formato de month debe ser YYYY-MM. Ejemplo: 2026-01"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        elif year:
+            try:
+                filter_year = int(year)
+            except ValueError:
+                return Response(
+                    {
+                        "detail": "El formato de year debe ser YYYY. Ejemplo: 2026"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # =====================================================
+        # 1. DEUDAS DE CONSUMO
+        # =====================================================
+
+        debt_details = DebtDetail.objects.filter(
+            debt__paid=False,
+            debt__is_refinanced=False
+        )
+
+        if filter_year:
+            debt_details = debt_details.filter(
+                debt__period__year=filter_year
+            )
+
+        if filter_month:
+            debt_details = debt_details.filter(
+                debt__period__month=filter_month
+            )
+
+        consumption_debts = (
+            debt_details
+            .values(
+                "concept_id",
+                "concept__code",
+                "concept__name",
+                "concept__system_key",
+            )
+            .annotate(
+                total=Sum("amount")
+            )
+            .order_by("concept__name")
+        )
+
+        # =====================================================
+        # 2. OTROS CARGOS
+        # =====================================================
+
+        service_charges = ServiceCharge.objects.filter(
+            status="pending",
+            is_refinanced=False
+        )
+
+        if filter_year:
+            service_charges = service_charges.filter(
+                created_at__year=filter_year
+            )
+
+        if filter_month:
+            service_charges = service_charges.filter(
+                created_at__month=filter_month
+            )
+
+        service_debts = (
+            service_charges
+            .values(
+                "concept_id",
+                "concept__code",
+                "concept__name",
+                "concept__system_key",
+            )
+            .annotate(
+                total=Sum("amount")
+            )
+            .order_by("concept__name")
+        )
+
+        # =====================================================
+        # 3. FRACCIONAMIENTOS
+        # =====================================================
+
+        installments = RefinancingInstallment.objects.filter(
+            paid=False
+        )
+
+        if filter_year:
+            installments = installments.filter(
+                due_date__year=filter_year
+            )
+
+        if filter_month:
+            installments = installments.filter(
+                due_date__month=filter_month
+            )
+
+        refinancing_total = (
+            installments.aggregate(
+                total=Sum("total_amount")
+            )["total"]
+            or Decimal("0.00")
+        )
+
+        # =====================================================
+        # ARMAR RESULTADOS
+        # =====================================================
+
+        results = []
+
+        for item in consumption_debts:
+            results.append({
+                "source": "debt",
+                "concept_id": item["concept_id"],
+                "code": item["concept__code"],
+                "concept": item["concept__name"],
+                "system_key": item["concept__system_key"],
+                "total": item["total"],
+            })
+
+        for item in service_debts:
+            results.append({
+                "source": "service",
+                "concept_id": item["concept_id"],
+                "code": item["concept__code"],
+                "concept": item["concept__name"],
+                "system_key": item["concept__system_key"],
+                "total": item["total"],
+            })
+
+        # Solo agregar fraccionamiento si existe deuda
+        if refinancing_total > 0:
+            results.append({
+                "source": "refinancing",
+                "concept_id": None,
+                "code": None,
+                "concept": "Fraccionamiento",
+                "system_key": None,
+                "total": refinancing_total,
+            })
+
+        # =====================================================
+        # TOTAL GENERAL
+        # =====================================================
+
+        total_general = sum(
+            (item["total"] for item in results),
+            Decimal("0.00")
+        )
+
+        if month:
+            date = datetime.strptime(month, "%Y-%m")
+
+            months = [
+                "",
+                "ENERO",
+                "FEBRERO",
+                "MARZO",
+                "ABRIL",
+                "MAYO",
+                "JUNIO",
+                "JULIO",
+                "AGOSTO",
+                "SEPTIEMBRE",
+                "OCTUBRE",
+                "NOVIEMBRE",
+                "DICIEMBRE",
+            ]
+
+            period_text = (
+                f"{months[date.month]} {date.year}"
+            )
+
+        else:
+
+            period_text = f"AÑO {year}"
+
+
+        html_string = render_to_string(
+            "reports/debt_by_concept.html",
+            {
+              "results": results,
+              "total_general": total_general,
+              "period_text": period_text
+            }
+        )
+
+
+        # =====================================================
+        # PDF
+        # =====================================================
+
+        pdf = HTML(
+            string=html_string,
+            base_url=request.build_absolute_uri("/")
+        ).write_pdf()
+
+        response = HttpResponse(
+            pdf,
+            content_type="application/pdf"
+        )
+
+        response["Content-Disposition"] = (
+            'inline; filename="reporte_deudas_por_concepto.pdf"'
+        )
+
+        return response

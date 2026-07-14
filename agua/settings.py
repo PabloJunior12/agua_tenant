@@ -22,6 +22,7 @@ SHARED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles', 
     'django.contrib.admin', # admin solo en tenant
+    "django.contrib.humanize",
     'rest_framework',
     'rest_framework.authtoken',
     'rest_framework_simplejwt',

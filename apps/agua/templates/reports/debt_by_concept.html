@@ -1,0 +1,196 @@
+{% load humanize %}
+
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+
+    <style>
+
+        @page {
+            size: A4;
+            margin: 15mm;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 11px;
+            color: #222;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        .header h1 {
+            font-size: 16px;
+            margin: 0;
+            text-transform: uppercase;
+        }
+
+        .header h2 {
+            font-size: 13px;
+            margin: 6px 0 0;
+            font-weight: normal;
+        }
+
+        .period {
+            margin-top: 8px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            display: table-header-group;
+        }
+
+        th {
+            background: #e8e8e8;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        th,
+        td {
+            border: 1px solid #555;
+            padding: 7px 8px;
+        }
+
+        .number {
+            width: 50px;
+            text-align: center;
+        }
+
+        .amount {
+            width: 150px;
+            text-align: right;
+        }
+
+        .total-row {
+            font-weight: bold;
+            background: #eeeeee;
+        }
+
+        .total-row td {
+            font-size: 12px;
+        }
+
+        .footer {
+            margin-top: 25px;
+            font-size: 9px;
+            color: #555;
+            text-align: right;
+        }
+
+    </style>
+</head>
+
+<body>
+
+    <div class="header">
+
+        <h1>
+            Reporte General de Deudas por Concepto
+        </h1>
+
+        <h2>
+            Resumen de deuda pendiente
+        </h2>
+
+        <div class="period">
+            PERIODO: {{ period_text }}
+        </div>
+
+    </div>
+
+
+    <table>
+
+        <thead>
+
+            <tr>
+                <th class="number">N°</th>
+                <th>CONCEPTO</th>
+                <th class="amount">TOTAL DEUDA</th>
+            </tr>
+
+        </thead>
+
+        <tbody>
+
+            {% for item in results %}
+
+            <tr>
+
+                <td class="number">
+                    {{ forloop.counter }}
+                </td>
+
+                <td>
+                    {{ item.concept }}
+                </td>
+
+                <td class="amount">
+                     S/ {{ item.total|floatformat:2|intcomma }}
+                </td>
+
+            </tr>
+
+            {% empty %}
+
+            <tr>
+
+                <td colspan="3"
+                    style="text-align:center; padding:20px;">
+
+                    No se encontraron deudas para el periodo seleccionado.
+
+                </td>
+
+            </tr>
+
+            {% endfor %}
+
+
+            <tr class="total-row">
+
+                <td colspan="2"
+                    style="text-align:right;">
+
+                    TOTAL GENERAL
+
+                </td>
+
+                <td class="amount">
+
+                      S/ {{ total_general|floatformat:2|intcomma }}
+
+                </td>
+
+            </tr>
+
+        </tbody>
+
+    </table>
+
+
+    <div class="footer">
+
+        Reporte generado automáticamente por el sistema.
+
+    </div>
+
+</body>
+
+</html>
