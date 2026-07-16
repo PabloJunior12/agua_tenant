@@ -6,6 +6,7 @@ from django.db import models, connection
 from django.utils.timezone import now
 
 from .utils import get_concept_total
+from .querysets import CustomerQuerySet
 
 class Company(models.Model):
 
@@ -329,6 +330,8 @@ class Customer(models.Model):
     date_of_record = models.DateField(null=True, blank=True)
     billing_type = models.CharField(max_length=10, choices=BILLING_TYPE_CHOICES, default='both')
     observation = models.TextField(null=True, blank=True) 
+
+    objects = CustomerQuerySet.as_manager()
 
     def __str__(self):
 

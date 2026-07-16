@@ -5,7 +5,7 @@ from django.http import HttpResponse, FileResponse
 from django.conf import settings
 from django.utils.timezone import now, localdate
 from django.db import transaction, connection, IntegrityError
-from django.db.models import Max, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery, DecimalField, IntegerField, Avg
+from django.db.models import Max, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery, DecimalField, IntegerField, Avg, Value, F, ExpressionWrapper
 from django.db.models.functions import Coalesce, Cast
 
 from django_q.tasks import async_task
@@ -156,6 +156,11 @@ class ManzanaViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         return Response(queryset)
 
+
+DECIMAL_FIELD = DecimalField(max_digits=10, decimal_places=2)
+
+
+
 class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelViewSet):
   
     serializer_class = CustomerSerializer
@@ -169,40 +174,17 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
 
         queryset = Customer.objects.filter(
             status=True
-        ).annotate(
-            total_debt=Coalesce(
-                Sum(
-                    'debts__amount',
-                    filter=Q(
-                        debts__paid=False,
-                        debts__is_refinanced=False
-                    )
-                ),
-                0,
-                output_field=DecimalField(
-                    max_digits=10,
-                    decimal_places=2
-                )
-            )
-        ).order_by('-codigo')
+        ).with_total_debt()
 
-        # Solo para chilca
-        if self.request.tenant.schema_name == 'chilca':
-
+        if self.request.tenant.schema_name == "chilca":
             queryset = queryset.annotate(
-
-                mz_number=Cast(
-                    'manzana__codigo',
-                    IntegerField()
-                ),
-
-           
-
+                mz_number=Cast("manzana__codigo", IntegerField())
             ).order_by(
-                'sector',
-                'mz_number',
-                # 'predio_number',
+                "sector",
+                "mz_number",
             )
+        else:
+            queryset = queryset.order_by("-codigo")
 
         return queryset
 
