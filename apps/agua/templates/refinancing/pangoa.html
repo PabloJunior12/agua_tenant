@@ -318,8 +318,7 @@
         <strong>{{ ref.customer.address|default:"____________________" }}</strong>,
         N° Celular
         <strong>{{ ref.customer.phone|default:"____________________" }}</strong>,
-        asumo voluntariamente el compromiso de cancelar el derecho de instalación
-        de los servicios de agua bajo las siguientes condiciones:
+        Asumo voluntariamente el compromiso de cancelar la deuda objeto del presente fraccionamiento, bajo las siguientes condiciones:
 
     </div>
 
@@ -334,14 +333,19 @@
         <ul>
 
             <li>
+                <strong>Monto Original</strong>
+                S/ {{ ref.original_amount }}
+            </li>
+             <li>
+                <strong>Cuota Inicial:</strong>
+                S/ {{ ref.initial_payment }}
+            </li>
+            <li>
                 <strong>Monto Total:</strong>
                 S/ {{ ref.total_amount }}
             </li>
 
-            <li>
-                <strong>Cuota Inicial:</strong>
-                S/ {{ ref.initial_payment }}
-            </li>
+      
 
             <li>
                 <strong>Saldo Restante:</strong>
@@ -406,9 +410,11 @@
 
     <div class="paragraph">
 
-        El usuario reconoce y acepta que, adicionalmente a las cuotas del derecho
-        de instalación, deberá cancelar oportunamente los pagos mensuales
-        correspondientes al servicio de agua potable.
+      El usuario declara conocer que el presente convenio de refinanciamiento no
+      suspende ni reemplaza las obligaciones de pago que se generen con posterioridad.
+      En consecuencia, se compromete a cancelar oportunamente tanto las cuotas del
+      presente convenio como los pagos corrientes que correspondan por los servicios
+      y demás conceptos facturados por la entidad.
 
     </div>
 

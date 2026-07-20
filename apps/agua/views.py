@@ -70,9 +70,7 @@ class ServiceChargeViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
 
         if instance.status == 'paid':
-            raise ValidationError(
-                {"error" :'No se puede eliminar un cargo que ya ha sido pagado.'}
-            )
+            raise ValidationError({"error" :'No se puede eliminar un cargo que ya ha sido pagado.'})
 
         instance.delete()
 
@@ -3255,29 +3253,42 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         tenant = request.tenant.schema_name
 
         customer_id = request.data.get("customer_id")
+        items = request.data.get("items", [])
 
-        service_id = request.data.get("service_id")
-
-        years = request.data.get("years", [])
+        try:
+            initial_payment = Decimal(
+                request.data.get("initial_payment") or "0"
+            )
+        except (InvalidOperation, TypeError):
+            raise ValidationError({
+                "error": "Monto de adelanto inválido."
+            })
 
         cuotas = int(request.data.get("cuotas", 1))
 
-        type = request.data.get("type", "debt")
-
         if cuotas <= 0:
 
-            raise ValidationError("Cuotas invalidas")
+            raise ValidationError({"error" :'Cuotas invalidas'})
 
         total = Decimal('0')
-
-        debts = Debt.objects.none()
-        service_charges = ServiceCharge.objects.none()
 
         ####################################################
         # DEUDAS
         ####################################################
 
-        if type in ['debt', 'all']:
+        ####################################################
+        # DEUDAS DE CONSUMO
+        ####################################################
+
+        years = [
+            item["year"]
+            for item in items
+            if item["type"] == "consumption"
+        ]
+
+        debts = Debt.objects.none()
+
+        if years:
 
             debts = Debt.objects.filter(
                 customer_id=customer_id,
@@ -3286,34 +3297,66 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 period__year__in=years
             )
 
-            if not debts.exists():
-                raise ValidationError(
-                    "No hay deudas validas"
-                )
-
-            total = (
-                debts.aggregate(total=Sum('amount'))['total']
-                or Decimal('0')
+            total += (
+                debts.aggregate(total=Sum("amount"))["total"]
+                or Decimal("0")
             )
+
 
         ####################################################
         # SERVICE CHARGES
         ####################################################
 
-        if type in ['service', 'all']:
+        service_ids = [
+            item["id"]
+            for item in items
+            if item["type"] == "service"
+        ]
+
+        service_charges = ServiceCharge.objects.none()
+
+        if service_ids:
 
             service_charges = ServiceCharge.objects.filter(
-                pk = service_id,
-                # customer_id=customer_id,
-                status='pending',
+                customer_id=customer_id,
+                id__in=service_ids,
+                status="pending",
                 is_refinanced=False
             )
 
             total += (
-                service_charges.aggregate(total=Sum('amount'))['total']
-                or Decimal('0')
+                service_charges.aggregate(total=Sum("amount"))["total"]
+                or Decimal("0")
             )
 
+        if initial_payment < 0:
+          
+            raise ValidationError({"error" :'El adelanto no puede ser negativo.'})
+
+        if initial_payment >= total:
+ 
+           raise ValidationError({"error" :'El adelanto debe ser menor al total de la deuda.'})
+
+        original_amount = total
+
+        total = (
+            total - initial_payment
+        ).quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP
+        )
+
+        has_debts = debts.exists()
+        has_services = service_charges.exists()
+
+        if has_debts and has_services:
+            refinancing_type = "mixed"
+        elif has_debts:
+            refinancing_type = "debt"
+        elif has_services:
+            refinancing_type = "service"
+        else:
+            raise ValidationError({"error" :'No existen elementos para refinanciar.'})
         ####################################################
         # INTERES
         ####################################################
@@ -3388,7 +3431,11 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
                 installments=cuotas,
 
-                type = type
+                type = refinancing_type,
+
+                original_amount = original_amount,
+
+                initial_payment = initial_payment
 
             )
 
@@ -3503,29 +3550,42 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         tenant = request.tenant.schema_name
     
         customer_id = request.data.get("customer_id")
+        items = request.data.get("items", [])
 
-        service_id = request.data.get("service_id")
-
-        years = request.data.get("years", [])
-
+        try:
+            initial_payment = Decimal(
+                request.data.get("initial_payment") or "0"
+            )
+        except (InvalidOperation, TypeError):
+            raise ValidationError({
+                "error": "Monto de adelanto inválido."
+            })
+        
         cuotas = int(request.data.get("cuotas", 1))
-
-        type = request.data.get("type", "debt")
 
         if cuotas <= 0:
 
-            raise ValidationError("Cuotas invalidas")
+            raise ValidationError({"error" :'Cuotas invalidas'})
 
         total = Decimal('0')
-
-        debts = Debt.objects.none()
-        service_charges = ServiceCharge.objects.none()
 
         ####################################################
         # DEUDAS
         ####################################################
 
-        if type in ['debt', 'all']:
+        ####################################################
+        # DEUDAS DE CONSUMO
+        ####################################################
+
+        years = [
+            item["year"]
+            for item in items
+            if item["type"] == "consumption"
+        ]
+
+        debts = Debt.objects.none()
+
+        if years:
 
             debts = Debt.objects.filter(
                 customer_id=customer_id,
@@ -3534,28 +3594,54 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 period__year__in=years
             )
 
-            total = (
-                debts.aggregate(total=Sum('amount'))['total']
-                or Decimal('0')
+            total += (
+                debts.aggregate(total=Sum("amount"))["total"]
+                or Decimal("0")
             )
+
 
         ####################################################
         # SERVICE CHARGES
         ####################################################
 
-        if type in ['service', 'all']:
+        service_ids = [
+            item["id"]
+            for item in items
+            if item["type"] == "service"
+        ]
+
+        service_charges = ServiceCharge.objects.none()
+
+        if service_ids:
 
             service_charges = ServiceCharge.objects.filter(
-                pk = service_id,
-                # customer_id=customer_id,
-                status='pending',
+                customer_id=customer_id,
+                id__in=service_ids,
+                status="pending",
                 is_refinanced=False
             )
 
             total += (
-                service_charges.aggregate(total=Sum('amount'))['total']
-                or Decimal('0')
+                service_charges.aggregate(total=Sum("amount"))["total"]
+                or Decimal("0")
             )
+
+        if initial_payment < 0:
+          
+            raise ValidationError({"error" :'El adelanto no puede ser negativo.'})
+
+        if initial_payment >= total:
+ 
+           raise ValidationError({"error" :'El adelanto debe ser menor al total de la deuda.'})
+
+        original_amount = total
+
+        total = (
+            total - initial_payment
+        ).quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP
+        )
 
         ####################################################
         # INTERES
@@ -3675,6 +3761,10 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         return Response({
 
+            "original_amount": original_amount,
+
+            "initial_payment": initial_payment,
+
             "subtotal": total,
 
             "interest_rate": INTEREST_RATE,
@@ -3709,6 +3799,136 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         return Response({
             "success": True,
             "paid": debt.paid
+        })
+
+    @action(detail=False, methods=["GET"])
+    def summary(self, request):
+
+        customer_id = request.query_params.get("customer")
+
+        if not customer_id:
+            return Response(
+                {"error": "Debe enviar el parámetro customer"},
+                status=400
+            )
+
+        ####################################################
+        # DEUDAS DE CONSUMO
+        ####################################################
+
+        debts = (
+            Debt.objects
+            .filter(
+                customer_id=customer_id,
+                paid=False,
+                is_refinanced=False
+            )
+            .prefetch_related("details__concept")
+            .order_by("period")
+        )
+
+        yearly = defaultdict(
+            lambda: {
+                "total": Decimal("0"),
+                "months": [],
+                "conceptos": defaultdict(Decimal)
+            }
+        )
+
+        for debt in debts:
+
+            year = debt.period.year
+
+            yearly[year]["total"] += debt.amount
+            yearly[year]["months"].append(debt.period.month)
+
+            for detail in debt.details.all():
+                yearly[year]["conceptos"][detail.concept.system_key] += detail.amount
+
+        items = []
+
+        for year, data in yearly.items():
+
+            items.append({
+                "type": "consumption",
+                "year": year,
+                "from_month": min(data["months"]),
+                "to_month": max(data["months"]),
+                "description": "Consumo de agua",
+                "conceptos": dict(data["conceptos"]),
+                "total": float(data["total"]),
+                "sort_date": date(year, 1, 1)
+            })
+
+        ####################################################
+        # SERVICE CHARGE
+        ####################################################
+
+        service_charges = (
+            ServiceCharge.objects
+            .filter(
+                customer_id=customer_id,
+                status="pending",
+                is_refinanced=False
+            )
+            .select_related("concept")
+            .order_by("created_at")
+        )
+
+        for charge in service_charges:
+
+            items.append({
+
+                "type": "service",
+
+                "id": charge.id,
+
+                "description": charge.description,
+
+                "created_at": charge.created_at,
+
+                "concept": {
+                    "id": charge.concept.id,
+                    "code": charge.concept.code,
+                    "name": charge.concept.name,
+                    "system_key": charge.concept.system_key
+                },
+
+                # para que el html sea igual
+                "year": None,
+                "from_month": None,
+                "to_month": None,
+                "conceptos": {},
+
+                "total": float(charge.amount),
+
+                "sort_date": charge.created_at.date()
+
+            })
+
+        ####################################################
+        # ORDENAR
+        ####################################################
+
+        items = sorted(
+            items,
+            key=lambda x: x["sort_date"]
+        )
+
+        ####################################################
+        # TOTAL
+        ####################################################
+
+        grand_total = sum(
+            item["total"] for item in items
+        )
+
+        return Response({
+
+            "items": items,
+
+            "grand_total": grand_total
+
         })
 
 class RefinancingInstallmentViewSet(TenantSafeMixin,viewsets.ModelViewSet):
@@ -4844,30 +5064,21 @@ class DebtRefinancingViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
         else:
 
-            if refinancing.type == 'service':
+     
+            template = 'refinancing/pangoa.html'
 
-                template = 'refinancing/pangoa_service.html'
-
-            elif refinancing.type == 'debt':
-
-                template = 'refinancing/pangoa_debt.html'
-
+     
         installments = refinancing.installment_details.all()
         html_string = render_to_string(template,
 
             {
                 'ref': refinancing,
                 'installments': installments,
-                'logo_url': logo_url
+                'logo_url': logo_url,
+              
             }
 
         )
-
-        print({
-                'ref': refinancing,
-                'installments': installments,
-                'logo_url': logo_url
-            })
 
         html = HTML(
             string=html_string,
@@ -4994,7 +5205,8 @@ class DebtRefinancingViewSet(TenantSafeMixin, viewsets.ModelViewSet):
             )
 
         # Restaurar los servicios relacionados
-        if refinancing.type == 'service':
+        # Restaurar servicios
+        if refinancing.type in ['service', 'mixed']:
 
             service_charge_ids = refinancing.service_details.values_list(
                 'service_charge_id',
@@ -5008,8 +5220,8 @@ class DebtRefinancingViewSet(TenantSafeMixin, viewsets.ModelViewSet):
                 is_refinanced=False
             )
 
-        # Restaurar las deudas relacionadas
-        elif refinancing.type == 'debt':
+        # Restaurar deudas
+        if refinancing.type in ['debt', 'mixed']:
 
             debt_ids = refinancing.details.exclude(
                 debt_id__isnull=True
@@ -5036,6 +5248,106 @@ class DebtRefinancingViewSet(TenantSafeMixin, viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK
         )
+
+    @action(detail=True, methods=["post"])
+    @transaction.atomic
+    def update_installments(self, request, pk=None):
+
+        refinancing = self.get_object()
+
+        installments = request.data.get("installments", [])
+
+        if not installments:
+            raise ValidationError({
+                "installments": "Debe enviar las cuotas."
+            })
+
+        details = {
+            detail.id: detail
+            for detail in refinancing.installment_details.all()
+        }
+
+        total = Decimal("0.00")
+
+        # ==========================
+        # Validaciones
+        # ==========================
+
+        for item in installments:
+
+            detail_id = item.get("id")
+
+            if detail_id not in details:
+                raise ValidationError(
+                    f"La cuota {detail_id} no pertenece a este refinanciamiento."
+                )
+
+            detail = details[detail_id]
+
+            if detail.paid:
+                raise ValidationError(
+                    f"La cuota N.° {detail.number} ya fue pagada y no puede modificarse."
+                )
+
+            try:
+                amount = Decimal(str(item.get("total_amount")))
+            except Exception:
+                raise ValidationError(
+                    f"Monto inválido en la cuota N.° {detail.number}."
+                )
+
+            if amount <= 0:
+                raise ValidationError(
+                    f"El monto de la cuota N.° {detail.number} debe ser mayor a cero."
+                )
+
+            if not item.get("due_date"):
+                raise ValidationError(
+                    f"Debe ingresar la fecha de vencimiento de la cuota N.° {detail.number}."
+                )
+
+            total += amount
+
+        total = total.quantize(Decimal("0.01"))
+        paid_total = (
+            refinancing.installment_details
+            .filter(paid=True)
+            .aggregate(total=Sum("total_amount"))["total"]
+            or Decimal("0.00")
+        )
+
+        pending_total = (
+            refinancing.total_amount_with_interest - paid_total
+        ).quantize(Decimal("0.01"))
+
+        if total != pending_total:
+            raise ValidationError({
+                "total": (
+                    f"La suma de las cuotas pendientes ({total}) "
+                    f"debe ser igual al saldo pendiente ({pending_total})."
+                )
+            })
+
+        # ==========================
+        # Guardar cambios
+        # ==========================
+
+        for item in installments:
+
+            detail = details[item["id"]]
+
+            detail.total_amount = Decimal(str(item["total_amount"]))
+            detail.due_date = item["due_date"]
+
+            detail.save(update_fields=[
+                "total_amount",
+                "due_date"
+            ])
+
+        return Response({
+            "success": True,
+            "message": "Las cuotas fueron actualizadas correctamente."
+        })
 
 class AtypicalConsumptionReportExcelView(TenantSafeMixin, APIView):
 

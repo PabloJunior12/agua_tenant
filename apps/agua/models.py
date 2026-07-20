@@ -781,7 +781,8 @@ class DebtRefinancing(models.Model):
 
     TYPE_CHOICES = (
         ('debt', 'Deuda'),
-        ('service', 'Servicio')
+        ('service', 'Servicio'),
+        ('mixed', 'Mixto'),
     )
 
     type = models.CharField(
