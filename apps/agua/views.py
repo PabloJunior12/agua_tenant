@@ -3337,6 +3337,11 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
  
            raise ValidationError({"error" :'El adelanto debe ser menor al total de la deuda.'})
 
+        ####################################################
+        # CUOTA INICIAL
+        ####################################################
+
+
         original_amount = total
 
         total = (
@@ -3438,6 +3443,25 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 initial_payment = initial_payment
 
             )
+
+            if initial_payment > 0:
+
+                RefinancingInstallment.objects.create(
+
+                    refinancing=ref,
+
+                    number=0,
+
+                    capital_amount=initial_payment,
+
+                    interest_amount=Decimal("0.00"),
+
+                    total_amount=initial_payment,
+
+                    due_date=now().date()
+
+                )
+
 
             ####################################################
             # VINCULAR DEUDAS
