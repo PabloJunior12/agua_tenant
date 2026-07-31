@@ -154,10 +154,7 @@ class ManzanaViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         return Response(queryset)
 
-
 DECIMAL_FIELD = DecimalField(max_digits=10, decimal_places=2)
-
-
 
 class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelViewSet):
   
@@ -3806,23 +3803,38 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         debt = self.get_object()
 
+        # No permitir modificar si la deuda pertenece a una factura activa
+        invoice_link = debt.invoice_links.filter(
+            invoice__status="active"
+        ).select_related("invoice").first()
+
+        if invoice_link:
+            return Response(
+                {
+                    "error": (
+                        f"No se puede modificar el estado de pago porque la deuda "
+                        f"pertenece a la factura {invoice_link.invoice.code}. "
+                        "Primero debe anular la factura."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         # Cambiar solo paid
         debt.paid = not debt.paid
-        debt.save(update_fields=['paid'])
+        debt.save(update_fields=["paid"])
 
         # Sin recalcular nada
         if debt.reading:
-
             debt.reading.paid = debt.paid
-
             debt.reading.save(
                 skip_process=True,
-                update_fields=['paid']
+                update_fields=["paid"],
             )
 
         return Response({
             "success": True,
-            "paid": debt.paid
+            "paid": debt.paid,
         })
 
     @action(detail=False, methods=["GET"])
