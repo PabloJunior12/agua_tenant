@@ -36,9 +36,9 @@ from apps.tenant.utils.seed import generate_ticket
 from apps.tenant.models import Pay, ReceiptBatch
 from apps.user.models import User
 
-from .models import Customer, ServiceRefinancingDetail, Manzana, CashMovement, ServiceCharge, Manzana, MeterAssignment, ServiceCut, Config, CutBatch, DailyCashReport, DebtRefinancing, DebtRefinancingDetail, RefinancingInstallment, WaterMeter, CashOutflow, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
+from .models import Customer, CategoryZoneBlock, CategoryZone, ServiceRefinancingDetail, Manzana, CashMovement, ServiceCharge, Manzana, MeterAssignment, ServiceCut, Config, CutBatch, DailyCashReport, DebtRefinancing, DebtRefinancingDetail, RefinancingInstallment, WaterMeter, CashOutflow, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
 from .serializers import (
-    CustomerSerializer, ServiceCutSerializer, ServiceChargeSerializer, DebtRefinancingSerializer, ManzanaSerializer, MeterAssignmentSerializer, MorosidadSerializer, CutBatchSerializer, WaterMeterSerializer, RefinancingInstallmentSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
+    CustomerSerializer, ServiceCutSerializer, CategoryZoneSerializer, ServiceChargeSerializer, ZonaWithBlocksSerializer, DebtRefinancingSerializer, ManzanaSerializer, MeterAssignmentSerializer, MorosidadSerializer, CutBatchSerializer, WaterMeterSerializer, RefinancingInstallmentSerializer, ViaSerializer, CompanySerializer, CashOutflowSerializer, CalleSerializer, DebtSerializer, CashBoxSerializer, CustomerWithDebtsSerializer,
     ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ConfigSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer)
 
 from .filters import ReadingFilter, DebtFilter
@@ -139,6 +139,28 @@ class ZonaViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=False, methods=["get"])
+    def with_blocks(self, request):
+
+        zonas = (
+            Zona.objects
+            .prefetch_related(
+                "manzanas",
+                Prefetch(
+                    "categories",
+                    queryset=CategoryZone.objects.prefetch_related("included_blocks")
+                )
+            )
+            .order_by("id")
+        )
+
+        serializer = ZonaWithBlocksSerializer(
+            zonas,
+            many=True
+        )
+
+        return Response(serializer.data)
+
 class ManzanaViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     queryset = Manzana.objects.all().order_by('id')
@@ -156,6 +178,40 @@ class ManzanaViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
 DECIMAL_FIELD = DecimalField(max_digits=10, decimal_places=2)
 
+class CategoryZoneViewSet(TenantSafeMixin, viewsets.ModelViewSet):
+
+    queryset = CategoryZone.objects.all().order_by('id')
+    serializer_class = CategoryZoneSerializer
+
+    @transaction.atomic
+    def create(self, request):
+
+        CategoryZoneBlock.objects.all().delete()
+        CategoryZone.objects.all().delete()
+
+        for item in request.data:
+
+            category_zone = CategoryZone.objects.create(
+                zone_id=item["zone"],
+                category_id=item["category"],
+                apply_all=item.get("apply_all", True)
+            )
+
+            CategoryZoneBlock.objects.bulk_create(
+                [
+                    CategoryZoneBlock(
+                        category_zone=category_zone,
+                        block_id=block,
+                    )
+                    for block in item.get("blocks", [])
+                ]
+            )
+
+        return Response(
+            {"detail": "Configuración guardada correctamente."},
+            status=status.HTTP_201_CREATED,
+        )
+    
 class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelViewSet):
   
     serializer_class = CustomerSerializer
@@ -2018,38 +2074,6 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         # Eliminar lectura
         instance.delete()
 
-        # # Obtener lectura previa
-        # prev_reading = Reading.objects.filter(
-        #     customer=customer,
-        #     period__lt=period
-        # ).order_by("-period").first()
-
-        # prev_value = (
-        #     prev_reading.current_reading
-        #     if prev_reading
-        #     else 0
-        # )
-
-        # # 🔄 Recalcular posteriores
-        # for r in next_readings:
-
-        #     r.previous_reading = prev_value
-        #     r.consumption = r.current_reading - prev_value
-
-        #     # Recalcular deuda
-        #     if hasattr(r, "debt") and r.debt:
-
-        #         r.debt.amount = (
-        #             r.consumption *
-        #             r.customer.category.price_water
-        #         )
-
-        #         r.debt.save()
-
-        #     r.save()
-
-        #     prev_value = r.current_reading
-
     @action(detail=False, methods=['get'], url_path='has-history/(?P<customer_id>[^/.]+)')
     def has_history(self, request, customer_id=None):
 
@@ -2385,18 +2409,26 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
            return Response({"error": f"Ya se generaron lecturas para {period_str}."}, status=400)
 
-        customers = Customer.objects.filter(has_meter=False, state__in=['active', 'inactive'], status=True)
+        customers = Customer.objects.filter(state__in=['active', 'inactive'], status=True)
 
         created = 0
         skipped_existing = 0
         skipped_paid = 0
+        skipped_meter = 0
 
         for customer in customers:
 
-            # Verificar si ya tiene una lectura para ese periodo
-            existing_reading = Reading.objects.filter(customer=customer, period=period_date).first()
+            # Obtener la categoría efectiva
+            tariff, from_zone = customer.get_category_info()
 
-            if existing_reading:
+            # Si tiene medidor y la categoría NO proviene de la zona,
+            # no se genera lectura fija.
+            if customer.has_meter and not from_zone:
+                skipped_meter += 1
+                continue
+
+            # Verificar si ya tiene una lectura para ese periodo
+            if Reading.objects.filter(customer=customer, period=period_date).exists():
 
                 skipped_existing += 1
                 continue
@@ -2406,9 +2438,7 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
                 skipped_paid += 1
                 continue
-
-            tariff = customer.category
-
+          
             sub_total_amount = tariff.price_water + tariff.price_sewer
 
             # Crear lectura
@@ -2419,35 +2449,42 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 previous_reading=0,
                 current_reading=0,
                 consumption=0,
+
                 total_water=tariff.price_water,
                 total_sewer=tariff.price_sewer,
      
                 sub_total_amount=sub_total_amount,
                 total_amount=sub_total_amount,
+
                 paid=False,
+
                 date_of_issue=request.data.get("date_of_issue"),
                 date_of_due=request.data.get("date_of_due"),
                 date_of_cute=request.data.get("date_of_cute")
+
             )
 
             created += 1
 
         # Registrar la generación
-        generation = ReadingGeneration.objects.create(
+        ReadingGeneration.objects.create(
             period=period_date,
             created_by=None,
             total_generated=created,
-            notes=request.data.get("notes") or "Generación automática para clientes sin medidor",
+            notes=request.data.get("notes") or "Generación automática para clientes",
             date_of_issue=request.data.get("date_of_issue"),
             date_of_due=request.data.get("date_of_due"),
             date_of_cute=request.data.get("date_of_cute")
         )
 
         return Response({
+
             "message": f"Generación completada para {period_str}.",
             "total_creados": created,
             "omitidos_existentes": skipped_existing,
-            "omitidos_pagados": skipped_paid
+            "omitidos_pagados": skipped_paid,
+            "omitidos_con_medidor": skipped_meter,
+
         }, status=201)
     
     @transaction.atomic
@@ -2908,8 +2945,10 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         # MONTOS BASE
         # =========================
 
-        total_water = customer.category.price_water or Decimal("0.00")
-        total_sewer = customer.category.price_sewer or Decimal("0.00")
+        category = customer.get_category()
+
+        total_water = category.price_water or Decimal("0.00")
+        total_sewer = category.price_sewer or Decimal("0.00")
 
         billing_type = customer.billing_type or "both"
 
@@ -3077,141 +3116,141 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         serializer = self.get_serializer(instance)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=['post'])
-    def import_excel(self, request):
-        file = request.FILES.get('file')
-        if not file:
-            return Response({'error': 'No se proporciono un archivo.'}, status=status.HTTP_400_BAD_REQUEST)
+    # @action(detail=False, methods=['post'])
+    # def import_excel(self, request):
+    #     file = request.FILES.get('file')
+    #     if not file:
+    #         return Response({'error': 'No se proporciono un archivo.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            df = pd.read_excel(
-                file,
-                engine='openpyxl',
-                # header=2,
-                dtype={'Codigo': str}
-            )
+    #     try:
+    #         df = pd.read_excel(
+    #             file,
+    #             engine='openpyxl',
+    #             # header=2,
+    #             dtype={'Codigo': str}
+    #         )
 
-            df['Codigo'] = df['Codigo'].astype(str).str.strip().str[-5:].str.zfill(5)
-        except Exception as e:
-            return Response({'error': f'Error al leer el archivo: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+    #         df['Codigo'] = df['Codigo'].astype(str).str.strip().str[-5:].str.zfill(5)
+    #     except Exception as e:
+    #         return Response({'error': f'Error al leer el archivo: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
 
-        errores = []
-        procesados = 0
+    #     errores = []
+    #     procesados = 0
 
-        # 🔹 Precargar conceptos
-        conceptos = {
-            "001": CashConcept.objects.get(code="001"),
-            "002": CashConcept.objects.get(code="002"),
-            # "003": CashConcept.objects.get(code="003"),
-            # "004": CashConcept.objects.get(code="004"),
-            # "005": CashConcept.objects.get(code="005"),
-        }
+    #     # 🔹 Precargar conceptos
+    #     conceptos = {
+    #         "001": CashConcept.objects.get(code="001"),
+    #         "002": CashConcept.objects.get(code="002"),
+    #         # "003": CashConcept.objects.get(code="003"),
+    #         # "004": CashConcept.objects.get(code="004"),
+    #         # "005": CashConcept.objects.get(code="005"),
+    #     }
 
-        # 🔹 Precargar clientes del Excel
-        codigos_excel = df['Codigo'].unique()
-        clientes = {
-            c.codigo: c
-            for c in Customer.objects.filter(codigo__in=codigos_excel)
-        }
+    #     # 🔹 Precargar clientes del Excel
+    #     codigos_excel = df['Codigo'].unique()
+    #     clientes = {
+    #         c.codigo: c
+    #         for c in Customer.objects.filter(codigo__in=codigos_excel)
+    #     }
 
-        debts_to_create = []
-        details_to_create = []
+    #     debts_to_create = []
+    #     details_to_create = []
 
-        try:
+    #     try:
 
-            cargo_fijo = CashConcept.objects.get(code="003")
+    #         cargo_fijo = CashConcept.objects.get(code="003")
 
-        except CashConcept.DoesNotExist:
+    #     except CashConcept.DoesNotExist:
 
-            cargo_fijo = None
+    #         cargo_fijo = None
 
-        total_fixed_charge = cargo_fijo.total if cargo_fijo else Decimal("0.00")
-        # df = df.head(2)
+    #     total_fixed_charge = cargo_fijo.total if cargo_fijo else Decimal("0.00")
+    #     # df = df.head(2)
 
-        for row in df.itertuples(index=False):
+    #     for row in df.itertuples(index=False):
 
-            codigo = str(row.Codigo)
+    #         codigo = str(row.Codigo)
 
   
 
-            year = row.anio
-            meses_texto = to_none_if_empty(row.Meses)
-            total = to_decimal_or_none(row.Agua)
+    #         year = row.anio
+    #         meses_texto = to_none_if_empty(row.Meses)
+    #         total = to_decimal_or_none(row.Agua)
 
-            if year != 2026:
-                if not meses_texto:
-                    errores.append({"codigo": codigo, "anio": year, "total": total, "error": "Campo 'Meses' vacio"})
-                    continue
+    #         if year != 2026:
+    #             if not meses_texto:
+    #                 errores.append({"codigo": codigo, "anio": year, "total": total, "error": "Campo 'Meses' vacio"})
+    #                 continue
 
-                customer = clientes.get(codigo)
-                if not customer:
-                    errores.append({"codigo": codigo, "anio": year, "meses": meses_texto, "total": total, "error": "Cliente no encontrado"})
-                    continue
+    #             customer = clientes.get(codigo)
+    #             if not customer:
+    #                 errores.append({"codigo": codigo, "anio": year, "meses": meses_texto, "total": total, "error": "Cliente no encontrado"})
+    #                 continue
 
-                try:
-                    periodos = generar_periodos(int(year), meses_texto)
-                except Exception as e:
-                    errores.append({"codigo": codigo, "anio": year, "meses": meses_texto, "total": total, "error": f"Error al generar periodos: {str(e)}"})
-                    continue
+    #             try:
+    #                 periodos = generar_periodos(int(year), meses_texto)
+    #             except Exception as e:
+    #                 errores.append({"codigo": codigo, "anio": year, "meses": meses_texto, "total": total, "error": f"Error al generar periodos: {str(e)}"})
+    #                 continue
 
-                # Calcular montos con precisión decimal
-                total_water = (Decimal(total) / Decimal(len(periodos))) if (total and len(periodos) > 0) else Decimal("0.00")
-                total_sewer = Decimal(customer.category.price_sewer or 0)
-                total_fixed_charge = Decimal(customer.category.price_fixed_charge or 0)
+    #             # Calcular montos con precisión decimal
+    #             total_water = (Decimal(total) / Decimal(len(periodos))) if (total and len(periodos) > 0) else Decimal("0.00")
+    #             total_sewer = Decimal(customer.category.price_sewer or 0)
+    #             total_fixed_charge = Decimal(customer.category.price_fixed_charge or 0)
 
-                amount = total_water + total_sewer + total_fixed_charge
-                if amount <= Decimal("0.00"):
-                    print(f"Deuda ignorada para {codigo} monto 0")
-                    continue
-                for periodo in periodos:
-                    # 🔹 Obtener o crear debt en memoria, no en DB aún
+    #             amount = total_water + total_sewer + total_fixed_charge
+    #             if amount <= Decimal("0.00"):
+    #                 print(f"Deuda ignorada para {codigo} monto 0")
+    #                 continue
+    #             for periodo in periodos:
+    #                 # 🔹 Obtener o crear debt en memoria, no en DB aún
 
-                    reading = Reading(
-                        customer=customer,
-                        period=periodo,
-                        current_reading=Decimal("0.000"),
-                        has_meter=customer.has_meter,
-                        total_water=total_water,
-                        total_sewer=total_sewer,
-                        total_fixed_charge=total_fixed_charge,
-                        total_amount=amount,
-                    )
-                    reading.save(skip_process=True)
+    #                 reading = Reading(
+    #                     customer=customer,
+    #                     period=periodo,
+    #                     current_reading=Decimal("0.000"),
+    #                     has_meter=customer.has_meter,
+    #                     total_water=total_water,
+    #                     total_sewer=total_sewer,
+    #                     total_fixed_charge=total_fixed_charge,
+    #                     total_amount=amount,
+    #                 )
+    #                 reading.save(skip_process=True)
 
-                    debt, created = Debt.objects.get_or_create(
-                        customer=customer,
-                        reading=reading,
-                        period=periodo,
-                        defaults={
-                            "description": "Deuda importada desde Excel",
-                            "amount": amount,
-                            "paid": False
-                        }
-                    )
+    #                 debt, created = Debt.objects.get_or_create(
+    #                     customer=customer,
+    #                     reading=reading,
+    #                     period=periodo,
+    #                     defaults={
+    #                         "description": "Deuda importada desde Excel",
+    #                         "amount": amount,
+    #                         "paid": False
+    #                     }
+    #                 )
 
-                    if not created:
-                        debt.amount = amount
-                        debt.save()
-                        debt.details.all().delete()
+    #                 if not created:
+    #                     debt.amount = amount
+    #                     debt.save()
+    #                     debt.details.all().delete()
 
-                    # 🔹 Preparar detalles para bulk_create
-                    if total_water > 0:
-                        details_to_create.append(DebtDetail(debt=debt, concept=conceptos["001"], amount=total_water))
-                    if total_sewer > 0:
-                        details_to_create.append(DebtDetail(debt=debt, concept=conceptos["002"], amount=total_sewer))
-                    # if total_fixed_charge > 0:
-                    #     details_to_create.append(DebtDetail(debt=debt, concept=conceptos["003"], amount=total_fixed_charge))
+    #                 # 🔹 Preparar detalles para bulk_create
+    #                 if total_water > 0:
+    #                     details_to_create.append(DebtDetail(debt=debt, concept=conceptos["001"], amount=total_water))
+    #                 if total_sewer > 0:
+    #                     details_to_create.append(DebtDetail(debt=debt, concept=conceptos["002"], amount=total_sewer))
+    #                 # if total_fixed_charge > 0:
+    #                 #     details_to_create.append(DebtDetail(debt=debt, concept=conceptos["003"], amount=total_fixed_charge))
 
-                    procesados += 1
+    #                 procesados += 1
 
-        # 🔹 Insertar todos los detalles de una vez
-        if details_to_create:
-            DebtDetail.objects.bulk_create(details_to_create)
+    #     # 🔹 Insertar todos los detalles de una vez
+    #     if details_to_create:
+    #         DebtDetail.objects.bulk_create(details_to_create)
 
-        return Response({
-            "procesados": procesados,
-            "errores": errores
-        }, status=status.HTTP_200_OK)
+    #     return Response({
+    #         "procesados": procesados,
+    #         "errores": errores
+    #     }, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"])
     def create_reading(self, request, pk=None):

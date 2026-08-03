@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.core.exceptions import ObjectDoesNotExist
 from django.utils.timezone import now
 from django.conf import settings
-from .models import Customer,  RefinancingInstallment, DebtRefinancing, ServiceCharge, WaterMeter, Manzana, ServiceCut, MeterAssignment, CutBatch, InvoiceInstallment, CashBox, Company, Config, CashOutflow, RefinancingInstallment, InvoiceConcept, CashMovement, DebtDetail, CashConcept, Reading, ReadingGeneration, Invoice, Category, Via, Calle, InvoiceDebt, Zona, Debt, InvoicePayment, DailyCashReport
+from .models import Customer, CategoryZone, RefinancingInstallment, CategoryZone, CategoryZoneBlock, DebtRefinancing, ServiceCharge, WaterMeter, Manzana, ServiceCut, MeterAssignment, CutBatch, InvoiceInstallment, CashBox, Company, Config, CashOutflow, RefinancingInstallment, InvoiceConcept, CashMovement, DebtDetail, CashConcept, Reading, ReadingGeneration, Invoice, Category, Via, Calle, InvoiceDebt, Zona, Debt, InvoicePayment, DailyCashReport
 from .utils import next_month_date, get_reading_status
 from django.db import transaction
 from django.db.models import Sum
@@ -30,6 +30,92 @@ class ManzanaSerializer(serializers.ModelSerializer):
         model = Manzana
         fields = '__all__'
 
+class CategoryZoneSerializer(serializers.ModelSerializer):
+
+    class Meta:
+
+        model = CategoryZone
+        fields = '__all__'
+
+class ManzanaSimpleSerializer(serializers.ModelSerializer):
+
+    selected = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Manzana
+        fields = (
+            "id",
+            "codigo",
+            "selected",
+        )
+
+    def get_selected(self, obj):
+
+        category_zone = self.context.get("category_zone")
+
+        if not category_zone:
+            return False
+
+        return category_zone.included_blocks.filter(
+            block=obj
+        ).exists()
+
+class ZonaWithBlocksSerializer(serializers.ModelSerializer):
+
+    category = serializers.SerializerMethodField()
+    selected = serializers.SerializerMethodField()
+    manzanas = serializers.SerializerMethodField()
+    apply_all = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Zona
+        fields = (
+            "id",
+            "codigo",
+            "name",
+            "category",
+            "selected",
+            "apply_all",
+            "manzanas",
+        )
+
+    def get_category_zone(self, obj):
+        return obj.categories.first()
+
+    def get_category(self, obj):
+
+        category_zone = self.get_category_zone(obj)
+
+        if not category_zone:
+            return None
+
+        return category_zone.category_id
+
+    def get_selected(self, obj):
+
+        return self.get_category_zone(obj) is not None
+
+    def get_manzanas(self, obj):
+
+        category_zone = self.get_category_zone(obj)
+
+        return ManzanaSimpleSerializer(
+            obj.manzanas.all(),
+            many=True,
+            context={
+                "category_zone": category_zone
+            }
+        ).data
+
+    def get_apply_all(self, obj):
+
+        category_zone = self.get_category_zone(obj)
+
+        if not category_zone:
+            return True  # o False, según el comportamiento por defecto que quieras
+
+        return category_zone.apply_all
+    
 class CalleSerializer(serializers.ModelSerializer):
 
     via_name = serializers.CharField(source='via.name', read_only=True)

@@ -162,6 +162,49 @@ class Category(models.Model):
             self.codigo = str(next_number).zfill(2)  # "0000001"
         super().save(*args, **kwargs)
 
+class CategoryZone(models.Model):
+
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.CASCADE,
+        related_name="zones"
+    )
+
+    zone = models.ForeignKey(
+        Zona,
+        on_delete=models.CASCADE,
+        related_name="categories"
+    )
+
+    apply_all = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["zone"],
+                name="unique_category_per_zone"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.category.name} - {self.zone.name}"
+
+class CategoryZoneBlock(models.Model):
+
+    category_zone = models.ForeignKey(
+        CategoryZone,
+        on_delete=models.CASCADE,
+        related_name="included_blocks"
+    )
+
+    block = models.ForeignKey(
+        Manzana,
+        on_delete=models.CASCADE
+    )
+
+    class Meta:
+        unique_together = ("category_zone", "block")
+
 class CashBox(models.Model):
 
     STATUS_CHOICES = [
@@ -333,9 +376,62 @@ class Customer(models.Model):
 
     objects = CustomerQuerySet.as_manager()
 
-    def __str__(self):
+    def get_category(self):
 
-        return f"{self.full_name} ({self.number or 'sin DNI'})"
+        if not self.zona:
+            return self.category
+
+        category_zone = (
+            CategoryZone.objects
+            .filter(zone=self.zona)
+            .prefetch_related("included_blocks")
+            .first()
+        )
+
+        if not category_zone:
+            return self.category
+
+        # Si aplica a toda la zona
+        if category_zone.apply_all:
+            return category_zone.category
+
+        # Solo aplica a las manzanas seleccionadas
+        if (
+            self.manzana and
+            category_zone.included_blocks.filter(
+                block=self.manzana
+            ).exists()
+        ):
+            return category_zone.category
+
+        # En cualquier otro caso usa la categoría del cliente
+        return self.category
+
+    def get_category_info(self):
+
+        if not self.zona:
+            return self.category, False
+
+        category_zone = (
+            CategoryZone.objects
+            .filter(zone=self.zona)
+            .prefetch_related("included_blocks")
+            .first()
+        )
+
+        if not category_zone:
+            return self.category, False
+
+        if category_zone.apply_all:
+            return category_zone.category, True
+
+        if (
+            self.manzana and
+            category_zone.included_blocks.filter(block=self.manzana).exists()
+        ):
+            return category_zone.category, True
+
+        return self.category, False
 
 class WaterMeter(models.Model):
 
@@ -560,38 +656,44 @@ class Reading(models.Model):
     def calculate_total(self):
 
         tenant = connection.schema_name
-
-        tariff = self.customer.category
+        tariff, from_zone = self.customer.get_category_info()
+   
         billing_type = (self.customer.billing_type or 'both')
 
         # Valores base
         water = Decimal('0.00')
         sewer = Decimal('0.00')
 
-        # =========================
-        # AGUA
-        # =========================
-        if tariff.has_meter:
+        print(tariff, from_zone)
 
-            if tariff.billing_mode == 'per_unit':
-              
-                water = self.calculate_water_total(tariff)
-                sewer = self.calculate_sewer_total(tariff)
+        if from_zone:
 
-            elif tariff.billing_mode == 'fixed_until_max':
-                
-                water = self.calculate_water_total_fixed_until_max(tariff)
-                sewer = self.calculate_sewer_total_fixed_until_max(tariff)
-            
-            else:
-
-                water = self.consumption * tariff.price_water
-                sewer = tariff.price_sewer or Decimal('0.00')
+           water = tariff.price_water
+           sewer = tariff.price_sewer
 
         else:
 
-            water = tariff.price_water
-            sewer = tariff.price_sewer or Decimal('0.00')
+            if tariff.has_meter:
+
+                if tariff.billing_mode == 'per_unit':
+                
+                    water = self.calculate_water_total(tariff)
+                    sewer = self.calculate_sewer_total(tariff)
+
+                elif tariff.billing_mode == 'fixed_until_max':
+                    
+                    water = self.calculate_water_total_fixed_until_max(tariff)
+                    sewer = self.calculate_sewer_total_fixed_until_max(tariff)
+                
+                else:
+
+                    water = self.consumption * tariff.price_water
+                    sewer = tariff.price_sewer or Decimal('0.00')
+
+            else:
+
+                water = tariff.price_water
+                sewer = tariff.price_sewer or Decimal('0.00')
 
     
         if billing_type == "water":
