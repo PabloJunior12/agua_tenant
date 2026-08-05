@@ -2491,6 +2491,7 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     @transaction.atomic
     def recreate_missing(self, request, pk=None, **kwargs):
 
+        return
         reading_generation = self.get_object()
         period_date = reading_generation.period
 
