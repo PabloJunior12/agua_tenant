@@ -2486,7 +2486,110 @@ class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             "omitidos_con_medidor": skipped_meter,
 
         }, status=201)
-    
+
+    @action(detail=True, methods=["post"])
+    @transaction.atomic
+    def recreate_missing(self, request, pk=None, **kwargs):
+
+        reading_generation = self.get_object()
+        period_date = reading_generation.period
+
+        # Zonas donde la categoría aplica a toda la zona
+        zone_ids = CategoryZone.objects.filter(
+            apply_all=True
+        ).values_list(
+            "zone_id",
+            flat=True
+        )
+
+        # Manzanas donde la categoría aplica parcialmente
+        block_ids = CategoryZoneBlock.objects.filter(
+            category_zone__apply_all=False
+        ).values_list(
+            "block_id",
+            flat=True
+        )
+
+        customers = (
+            Customer.objects
+            .filter(
+                status=True,
+                state__in=["active", "inactive"]
+            )
+            .filter(
+                Q(zona_id__in=zone_ids) |
+                Q(manzana_id__in=block_ids)
+            )
+            .select_related(
+                "zona",
+                "manzana"
+            )
+            .distinct()
+        )
+
+        recreated = 0
+        skipped_paid = []
+
+        for customer in customers:
+
+            tariff, _ = customer.get_category_info()
+
+            # Buscar deuda del periodo
+            debt = Debt.objects.filter(
+                customer=customer,
+                period=period_date
+            ).first()
+
+            # Si la deuda ya fue pagada, no tocar
+            if debt and debt.paid:
+
+                skipped_paid.append({
+                    "id": customer.id,
+                    "codigo": customer.codigo,
+                    "cliente": customer.full_name,
+                    "zona": customer.zona.name if customer.zona else None,
+                    "motivo": "La deuda ya fue pagada."
+                })
+
+                continue
+
+            # Eliminar deuda pendiente
+            if debt:
+                debt.delete()
+
+            # Eliminar lectura del periodo
+            Reading.objects.filter(
+                customer=customer,
+                period=period_date
+            ).delete()
+
+            # Recrear lectura
+            Reading.objects.create(
+                customer=customer,
+                period=period_date,
+                previous_reading=0,
+                current_reading=0,
+                consumption=0,
+                paid=False,
+                date_of_issue=reading_generation.date_of_issue,
+                date_of_due=reading_generation.date_of_due,
+                date_of_cute=reading_generation.date_of_cute,
+            )
+
+            recreated += 1
+
+        return Response({
+
+            "message": f"Recreación completada para {period_date}.",
+            "total_recreados": recreated,
+
+            "omitidos_pagados": {
+                "total": len(skipped_paid),
+                "customers": skipped_paid,
+            }
+
+        }, status=200)
+
     @transaction.atomic
     def destroy(self, request, *args, **kwargs):
 

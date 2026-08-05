@@ -335,7 +335,13 @@
                 </tr>
                 <tr>
                     <td><strong>Consumo:</strong></td>
-                    <td>{{ reading.consumption }}</td>
+                    <td>
+                        {% if reading.consumption < 0 %}
+                            0
+                        {% else %}
+                            {{ reading.consumption }}
+                        {% endif %}
+                    </td>
                 </tr>
             </table>
 
