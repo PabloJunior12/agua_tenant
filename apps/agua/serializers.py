@@ -11,6 +11,11 @@ from rest_framework.exceptions import ValidationError
 from django.contrib.auth import get_user_model
 
 import os
+import logging
+import traceback
+
+logger = logging.getLogger(__name__)
+
 
 User = get_user_model()
 
@@ -564,6 +569,8 @@ class InvoiceInstallmentSerializer(serializers.ModelSerializer):
             'total': {'required': False} 
         }
 
+
+
 class InvoiceSerializer(serializers.ModelSerializer):
     
     customer = serializers.PrimaryKeyRelatedField(
@@ -595,6 +602,9 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
 
+
+       try:
+    
         request = self.context.get("request")
         user = request.user if request else None
 
@@ -667,7 +677,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
                         service_charge = ServiceCharge.objects.filter(
                             id=service_charge_id
                         ).first()
-                        print(service_charge.id)
+                   
                         if service_charge:
 
                             service_charge.status = "paid"
@@ -779,6 +789,26 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
         return invoice
 
+       except serializers.ValidationError:
+            # Los errores de validación se envían tal cual
+            raise
+
+  
+       except Exception as e:
+
+        tb = traceback.extract_tb(e.__traceback__)
+        last = tb[-1]  # Última línea donde ocurrió el error
+
+        logger.exception("Error registrando factura")
+
+        raise serializers.ValidationError({
+            "error": str(e),
+            "type": e.__class__.__name__,
+            "file": last.filename,
+            "line": last.lineno,
+            "function": last.name,
+        })
+        
 class InvoiceAutoSerializer(serializers.Serializer):
     
     customer_id = serializers.IntegerField()
