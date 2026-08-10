@@ -604,9 +604,9 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
 
        try:
-    
-        request = self.context.get("request")
-        user = request.user if request else None
+   
+        # request = self.context.get("request")
+        # user = request.user if request else None
 
         debts_data = validated_data.pop("invoice_debts", [])
         concepts_data = validated_data.pop("invoice_concepts", [])
@@ -614,7 +614,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
         installments_data = validated_data.pop("invoice_installments", [])
 
         # asignar user_id automáticamente
-        validated_data["user_id"] = user.id
+        validated_data["user_id"] = 1
 
         # 1. Si no se envió cliente (por ser pagador externo)
         if not validated_data.get("customer"):
