@@ -1555,6 +1555,7 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
             "Estado",
             "Observación",
             "Medidor",
+            "Categoria",
             "Dirección",
 
             # Catastro
@@ -1648,10 +1649,17 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
                 value=meter.code if meter else ""
             )
 
-            # Dirección
+            # Cate
             ws.cell(
                 row=row,
                 column=6,
+                value = customer.get_category().name if customer else ""
+            )
+
+            # Dirección
+            ws.cell(
+                row=row,
+                column=7,
                 value=customer.address
             )
 
@@ -1661,25 +1669,25 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
             ws.cell(
                 row=row,
-                column=7,
+                column=8,
                 value=customer.provincia
             )
 
             ws.cell(
                 row=row,
-                column=8,
+                column=9,
                 value=customer.distrito
             )
 
             ws.cell(
                 row=row,
-                column=9,
+                column=10,
                 value=customer.sector
             )
 
             ws.cell(
                 row=row,
-                column=10,
+                column=11,
                 value=(
                     customer.manzana.codigo
                     if customer.manzana
@@ -1689,7 +1697,7 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
             ws.cell(
                 row=row,
-                column=11,
+                column=12,
                 value=customer.predio
             )
 
@@ -1699,7 +1707,7 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
             ws.cell(
                 row=row,
-                column=12,
+                column=13,
                 value=(
                     float(assignment.previous_reading)
                     if assignment.previous_reading is not None
@@ -1709,7 +1717,7 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
             ws.cell(
                 row=row,
-                column=13,
+                column=14,
                 value=(
                     assignment.previous_period.strftime('%Y-%m')
                     if assignment.previous_period
@@ -1723,7 +1731,7 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
             current_cell = ws.cell(
                 row=row,
-                column=14,
+                column=15,
                 value=(
                     float(assignment.current_reading_value)
                     if getattr(
@@ -1838,6 +1846,7 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
             "Estado",
             "Observación",
             "Medidor",
+            "Categoria",
             "Dirección",
 
             # Catastro
@@ -1908,10 +1917,18 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
                 value=meter.code if meter else ""
             )
 
-            # Dirección
+            # Cate
             ws.cell(
                 row=row,
                 column=6,
+                value = customer.get_category().name if customer else ""
+            )
+
+
+            # Dirección
+            ws.cell(
+                row=row,
+                column=7,
                 value=customer.address
             )
 
@@ -1921,25 +1938,25 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
             ws.cell(
                 row=row,
-                column=7,
+                column=8,
                 value=customer.provincia
             )
 
             ws.cell(
                 row=row,
-                column=8,
+                column=9,
                 value=customer.distrito
             )
 
             ws.cell(
                 row=row,
-                column=9,
+                column=10,
                 value=customer.sector
             )
 
             ws.cell(
                 row=row,
-                column=10,
+                column=11,
                 value=(
                     customer.manzana.codigo
                     if customer.manzana
@@ -1949,7 +1966,7 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
             ws.cell(
                 row=row,
-                column=11,
+                column=12,
                 value=customer.predio
             )
 

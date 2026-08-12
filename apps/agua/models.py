@@ -1250,6 +1250,7 @@ class CashMovement(models.Model):
     )
 
     def __str__(self):
+        
         return f"{self.cashbox} - {self.concept.name} - {self.total}"
 
 class CashOutflow(models.Model):
