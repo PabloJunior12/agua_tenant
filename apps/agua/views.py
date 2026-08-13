@@ -3963,22 +3963,23 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         debt = self.get_object()
 
-        # No permitir modificar si la deuda pertenece a una factura activa
-        invoice_link = debt.invoice_links.filter(
-            invoice__status="active"
-        ).select_related("invoice").first()
+        # Validar factura activa SOLO si la deuda actualmente está pagada
+        if debt.paid:
+            invoice_link = debt.invoice_links.filter(
+                invoice__status="active"
+            ).select_related("invoice").first()
 
-        if invoice_link:
-            return Response(
-                {
-                    "error": (
-                        f"No se puede modificar el estado de pago porque la deuda "
-                        f"pertenece a la factura {invoice_link.invoice.code}. "
-                        "Primero debe anular la factura."
-                    ),
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            if invoice_link:
+                return Response(
+                    {
+                        "error": (
+                            f"No se puede modificar el estado de pago porque la deuda "
+                            f"pertenece a la factura {invoice_link.invoice.code}. "
+                            "Primero debe anular la factura."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         # Cambiar solo paid
         debt.paid = not debt.paid
