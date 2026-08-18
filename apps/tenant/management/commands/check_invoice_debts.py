@@ -9,7 +9,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
 
-        with schema_context("pangoa"):
+        with schema_context("chilca"):
 
             invoice_debts = (
                 InvoiceDebt.objects

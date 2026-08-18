@@ -423,12 +423,13 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         # DEUDAS
         ####################################################
 
-        debts = customer.debts.filter(paid=False, is_refinanced=False).order_by('period')
+        debts = customer.debts.filter(
+            is_refinanced=False
+        ).order_by('period')
 
         debts_by_year = defaultdict(list)
 
         for debt in debts:
-
             debts_by_year[
                 debt.period.year
             ].append(debt)
@@ -440,6 +441,10 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         refinancings = DebtRefinancing.objects.filter(
             customer=customer
         ).prefetch_related('installment_details')
+
+        ####################################################
+        # TOTALES DEUDAS
+        ####################################################
 
         ####################################################
         # TOTALES DEUDAS
@@ -462,7 +467,12 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         )
 
         total_pending = (
-            total_debt - total_paid
+            debts.filter(
+                paid=False
+            ).aggregate(
+                total=Sum('amount')
+            )['total']
+            or 0
         )
 
         ####################################################
@@ -496,7 +506,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             or 0
         )
 
-        total_full_paid = total_refinancing_paid + total_paid
+        total_full_paid = total_paid + total_refinancing_paid
 
         ####################################################
         # TEMPLATE
