@@ -4772,6 +4772,18 @@ class CutBatchViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
         return response
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        if instance.cuts.filter(status="executed").exists():
+            raise ValidationError({
+                "error": "No se puede eliminar el padrón porque tiene cortes ejecutados."
+            })
+
+        self.perform_destroy(instance)
+
+        return Response(status=204)
+
 class ServiceCutViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
     queryset = ServiceCut.objects.all()
