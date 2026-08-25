@@ -1020,6 +1020,7 @@ class ServiceCut(models.Model):
     RESULT_CHOICES = [
         ("executed", "Cortado"),
         ("paid", "Pagó en campo"),
+        ("amortizing", "Amortizo"),
         ("not_found", "No ubicado"),
         ("postponed", "Postergado"),
     ]
@@ -1052,10 +1053,14 @@ class ServiceCut(models.Model):
 
     def execute_cut(self, user_id=None, result="executed", observation=None):
 
+        tenant = connection.schema_name
+
         if self.status != "pending":
-            return
+
+           return
 
         self.status = "executed"
+
         self.result = result
         self.execution_date = date.today()
         self.created_by = user_id
@@ -1064,8 +1069,16 @@ class ServiceCut(models.Model):
         self.save()
 
         if result == "executed":
+
+           if tenant == "chilca":
+
             self.customer.state = "low"
-            self.customer.save()
+
+           else:
+
+            self.customer.state = "cut"
+
+           self.customer.save()
 
 # END CHILCA
 
