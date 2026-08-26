@@ -4794,7 +4794,7 @@ class CutBatchViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
 class ServiceCutViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
-    queryset = ServiceCut.objects.all()
+    queryset = ServiceCut.objects.all().order_by('-id')
     serializer_class = ServiceCutSerializer
     pagination_class = CustomPagination
     filter_backends = [DjangoFilterBackend,filters.SearchFilter]

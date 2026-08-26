@@ -1021,6 +1021,7 @@ class ServiceCut(models.Model):
         ("executed", "Cortado"),
         ("paid", "Pagó en campo"),
         ("amortizing", "Amortizo"),
+        ("inactive", "Inactivo"),
         ("not_found", "No ubicado"),
         ("postponed", "Postergado"),
     ]
@@ -1069,16 +1070,12 @@ class ServiceCut(models.Model):
         self.save()
 
         if result == "executed":
+            self.customer.state = "low" if tenant == "chilca" else "cut"
+            self.customer.save()
 
-           if tenant == "chilca":
-
-            self.customer.state = "low"
-
-           else:
-
-            self.customer.state = "cut"
-
-           self.customer.save()
+        elif result == "inactive":
+            self.customer.state = "inactive"
+            self.customer.save()
 
 # END CHILCA
 
