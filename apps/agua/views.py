@@ -512,6 +512,13 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         # TEMPLATE
         ####################################################
 
+        meter_assignment = MeterAssignment.objects.filter(
+            customer=customer,
+            is_active=True
+        ).select_related('meter').first()
+
+        water_meter = meter_assignment.meter.code if meter_assignment else None
+
         html_string = render_to_string(
 
             'customer/customer_debt_history.html',
@@ -534,14 +541,13 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
 
                 'total_refinanced': total_refinanced,
 
-                'total_refinancing_paid':
-                    total_refinancing_paid,
+                'total_refinancing_paid':  total_refinancing_paid,
 
-                'total_refinancing_pending':
-                    total_refinancing_pending,
+                'total_refinancing_pending': total_refinancing_pending,
 
                 'today': datetime.now(),
-                'total_full_paid' : total_full_paid
+                'total_full_paid' : total_full_paid,
+                'water_meter': water_meter,
 
             }
 
@@ -1494,7 +1500,8 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
         'customer__codigo',
         'customer__state',
         'customer__zona',
-        'customer__manzana'
+        'customer__manzana',
+        'is_active'
     ]
 
     def get_queryset(self):
@@ -1502,7 +1509,8 @@ class MeterAssignmentViewSet(TenantSafeMixin, viewsets.ModelViewSet):
         month = self.request.query_params.get('month')
 
         if not month:
-            return MeterAssignment.objects.none()
+            
+           return MeterAssignment.objects.none()
 
         year, month = map(int, month.split('-'))
 

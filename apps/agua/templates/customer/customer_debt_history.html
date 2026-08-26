@@ -435,82 +435,72 @@
 
     <!-- CLIENTE -->
 
-    <div class="customer-card">
 
-        <div class="section-title">
+<div class="customer-card">
 
-            Información del cliente
+    <div class="section-title">
+        Información del cliente
+    </div>
 
-        </div>
+    <div class="customer-info">
 
-        <div class="customer-info">
+        <table>
 
-            <table>
+            <tr>
 
-                <tr>
+                <td style="width: 18%;">
+                    <strong>Código:</strong><br>
+                    {{ customer.codigo }}
+                </td>
 
-                    <td>
+                <td style="width: 42%;">
+                    <strong>Cliente:</strong><br>
+                    {{ customer.full_name }}
+                </td>
 
-                        <strong>Cliente:</strong>
-                        {{ customer.full_name }}
+                <td style="width: 20%;">
+                    <strong>DNI/RUC:</strong><br>
+                    {{ customer.number|default:"-" }}
+                </td>
 
-                    </td>
+                <td style="width: 20%;">
+                    <strong>Medidor:</strong><br>
 
-                    <td>
+                    {% if water_meter %}
+                        {{ water_meter }}
+                    {% else %}
+                        Sin medidor
+                    {% endif %}
 
-                        <strong>DNI/RUC:</strong>
-                        {{ customer.number|default:"-" }}
+                </td>
 
-                    </td>
+            </tr>
 
-                </tr>
+            <tr>
 
-                <tr>
+                <td colspan="2">
+                    <strong>Dirección:</strong><br>
+                    {{ customer.address|default:"-" }}
+                </td>
 
-                    <td>
+                <td>
+                    <strong>Categoría:</strong><br>
+                    {{ customer.category.name }}
+                </td>
 
-                        <strong>Dirección:</strong>
-                        {{ customer.address|default:"-" }}
+                <td>
+                    <strong>Fecha:</strong><br>
+                    {{ today|date:"d/m/Y H:i" }}
+                </td>
 
-                    </td>
+            </tr>
 
-                    <td>
-
-                        <strong>Categoría:</strong>
-                        {{ customer.category.name }}
-
-                    </td>
-
-                </tr>
-
-                <tr>
-
-                    <td>
-
-                        <strong>Medidor:</strong>
-
-                        {% if customer.has_meter %}
-                            SI
-                        {% else %}
-                            NO
-                        {% endif %}
-
-                    </td>
-
-                    <td>
-
-                        <strong>Fecha:</strong>
-                        {{ today|date:"d/m/Y H:i" }}
-
-                    </td>
-
-                </tr>
-
-            </table>
-
-        </div>
+        </table>
 
     </div>
+
+</div>
+
 
     <!-- RESUMEN -->
 
