@@ -194,11 +194,13 @@
                 </table>
               
 
-                {% if total_previous_debt_global > 0 %}
+            {% if reading.customer.state == "cut" %}
+                <span class="alert-text danger">⚠ CORTADO</span>
+            {% elif total_previous_debt_global > 0 %}
                 <span class="alert-text danger">⚠ AFECTO A CORTE</span>
-                {% else %}
+            {% else %}
                 <span class="alert-text success">✔ SIN DEUDAS</span>
-                {% endif %}
+            {% endif %}
 
             </div>
 
