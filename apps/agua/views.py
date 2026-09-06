@@ -2362,7 +2362,7 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
             background_image = request.build_absolute_uri(f"/media/chilca.jpeg")
 
-            html = render_to_string("agua/chilca.html", {
+            html = render_to_string("agua/chilca_individual.html", {
                 "readings_context": readings_context,
                 "company": company,
                 "company_logo": logo_path,
