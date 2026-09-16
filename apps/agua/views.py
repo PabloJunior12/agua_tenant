@@ -227,9 +227,27 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             status=True
         ).with_total_debt()
 
+        # ============================================================
+        # BUSCAR POR CÓDIGO DE MEDIDOR
+        # ============================================================
+
+        meter_code = self.request.query_params.get('meter_code')
+
+        if meter_code:
+            queryset = queryset.filter(
+                meterassignment__meter__code__icontains=meter_code
+            ).distinct()
+
+        # ============================================================
+        # ORDENAMIENTO
+        # ============================================================
+
         if self.request.tenant.schema_name == "chilca":
             queryset = queryset.annotate(
-                mz_number=Cast("manzana__codigo", IntegerField())
+                mz_number=Cast(
+                    "manzana__codigo",
+                    IntegerField()
+                )
             ).order_by(
                 "sector",
                 "mz_number",

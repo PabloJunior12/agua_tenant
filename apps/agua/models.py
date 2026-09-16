@@ -451,7 +451,6 @@ class WaterMeter(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='available')
 
     purchase_date = models.DateField(null=True, blank=True)
-
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
