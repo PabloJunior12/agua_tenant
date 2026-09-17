@@ -396,6 +396,7 @@ def get_catastral_queryset(period_date):
         )
         .filter(
             customer__state='active',
+            is_active=True,
         )
         .annotate(
 

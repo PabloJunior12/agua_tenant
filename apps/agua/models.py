@@ -629,28 +629,60 @@ class Reading(models.Model):
 
     def calculate_consumption(self):
 
-        if self.meter:
+        if not self.meter:
+            self.previous_reading = Decimal('0.000')
+            self.consumption = Decimal('0.000')
+            return
 
-            # ✅ solo autocompletar si no enviaron previous_reading
-            if Decimal(self.previous_reading or 0) <= 0:
+        # Buscar la última lectura del cliente
+        previous = Reading.objects.filter(
+            customer=self.customer,
+            period__lt=self.period
+        ).order_by('-period').first()
 
-                previous = Reading.objects.filter(
-                    customer=self.customer,
-                    period__lt=self.period
-                ).order_by('-period').first()
+        # ============================================================
+        # NO EXISTE LECTURA ANTERIOR
+        # ============================================================
 
-                if previous:
-                    self.previous_reading = previous.current_reading
+        if not previous:
 
-            self.consumption = (
-                Decimal(self.current_reading)
-                - Decimal(self.previous_reading)
+            self.previous_reading = (
+                self.previous_reading or Decimal('0.000')
             )
+
+        # ============================================================
+        # EXISTE LECTURA ANTERIOR
+        # ============================================================
 
         else:
 
-            self.previous_reading = Decimal('0.000')
-            self.consumption = Decimal('0.000')
+            # ========================================================
+            # MISMO MEDIDOR
+            # ========================================================
+
+            if previous.meter_id == self.meter_id:
+
+                self.previous_reading = previous.current_reading
+
+            # ========================================================
+            # MEDIDOR NUEVO
+            # ========================================================
+
+            else:
+
+                # Respetamos el previous_reading enviado.
+                self.previous_reading = (
+                    self.previous_reading or Decimal('0.000')
+                )
+
+        # ============================================================
+        # CALCULAR CONSUMO
+        # ============================================================
+
+        self.consumption = (
+            Decimal(self.current_reading)
+            - Decimal(self.previous_reading)
+        )
 
     def calculate_total(self):
 

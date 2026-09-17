@@ -2407,32 +2407,59 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         period = request.query_params.get("month")
 
         if not period:
-            return Response({"error": "month requerido"}, status=400)
+            return Response(
+                {"error": "month requerido"},
+                status=400
+            )
 
         year, month = map(int, period.split('-'))
         period_date = date(year, month, 1)
 
-        readings = Reading.objects.filter(
-            customer=OuterRef('pk'),
-            period=period_date
+        # ============================================================
+        # CLIENTES QUE REALMENTE DEBEN SER LEÍDOS
+        # MISMA FUENTE QUE get_catastral_queryset()
+        # ============================================================
+
+        assignments = MeterAssignment.objects.filter(
+            customer__state='active',
+            is_active=True,
         )
 
-        qs = Customer.objects.filter(
-            state='active',
-            status=True
-        ).annotate(
+        total = assignments.count()
+
+        # ============================================================
+        # ASIGNACIONES QUE TIENEN LECTURA EN EL PERÍODO
+        # ============================================================
+
+        readings = Reading.objects.filter(
+            customer=OuterRef('customer'),
+            meter=OuterRef('meter'),
+            period=period_date,
+        )
+
+        assignments = assignments.annotate(
             has_reading=Exists(readings)
         )
 
-        total = qs.count()
-        registrados = qs.filter(has_reading=True).count()
+        registrados = assignments.filter(
+            has_reading=True
+        ).count()
 
-        porcentaje = (registrados / total) * 100 if total else 0
+        # ============================================================
+        # PORCENTAJE
+        # ============================================================
+
+        porcentaje = (
+            (registrados / total) * 100
+            if total
+            else 0
+        )
 
         return Response({
             "total": total,
             "registrados": registrados,
-            "porcentaje": round(porcentaje, 2)
+            "pendientes": total - registrados,
+            "porcentaje": round(porcentaje, 2),
         })
 
 class ReadingGenerationViewSet(TenantSafeMixin,viewsets.ModelViewSet):

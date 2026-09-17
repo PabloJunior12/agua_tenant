@@ -453,10 +453,16 @@ class ReadingSerializer(serializers.ModelSerializer):
                 "Ya existe una lectura registrada para este cliente en el mismo mes."
             )
 
+        meter = data.get(
+            'meter',
+            self.instance.meter if self.instance else None
+        )
+
         # Buscar lectura anterior y siguiente
         prev_reading = Reading.objects.filter(
             customer=customer, period__lt=period
         ).order_by("-period").first()
+
 
         next_reading = Reading.objects.filter(
             customer=customer, period__gt=period
@@ -464,16 +470,45 @@ class ReadingSerializer(serializers.ModelSerializer):
 
         # --- VALIDACIÓN LECTURA MENOR ---
         if prev_reading:
-            # Caso normal: hay historial real
-            if current_reading < prev_reading.current_reading:
-                raise ValidationError(f"La lectura no puede ser menor que la de {prev_reading.period} ({prev_reading.current_reading}).")
+
+            # Solo validar continuidad si es el mismo medidor
+            if meter and prev_reading.meter_id == meter.id:
+
+                if current_reading < prev_reading.current_reading:
+                    raise ValidationError(
+                        f"La lectura no puede ser menor que la de "
+                        f"{prev_reading.period} "
+                        f"({prev_reading.current_reading})."
+                    )
+
+            else:
+
+                # Cambió de medidor.
+                # La lectura inicia desde previous_reading enviado.
+                manual_previous = data.get(
+                    'previous_reading',
+                    Decimal('0.000')
+                )
+
+                if current_reading < manual_previous:
+                    raise ValidationError(
+                        "La lectura actual no puede ser menor que "
+                        "la lectura anterior del nuevo medidor."
+                    )
+
         else:
-            # Caso MIGRACIÓN: no hay historial, se compara contra previous_reading manual
-            manual_previous = data.get('previous_reading', Decimal('0.000'))
+
+            manual_previous = data.get(
+                'previous_reading',
+                Decimal('0.000')
+            )
 
             if current_reading < manual_previous:
-                raise ValidationError("La lectura actual no puede ser menor que la lectura anterior ingresada manualmente.")
-
+                raise ValidationError(
+                    "La lectura actual no puede ser menor que "
+                    "la lectura anterior ingresada."
+                )
+            
         # --- VALIDACIÓN LECTURA MAYOR ---
         if next_reading:
 
@@ -499,24 +534,28 @@ class ReadingSerializer(serializers.ModelSerializer):
         ).order_by('-period').first()
 
         if last_reading:
-            # Calculamos la fecha del "próximo mes" a partir de la última lectura
+
             expected_next_date = next_month_date(last_reading.period)
 
-            # Comparamos solo año y mes (en caso de que no uses día=1):
-            if (period.year != expected_next_date.year) or (period.month != expected_next_date.month):
+            if (
+                period.year != expected_next_date.year
+                or period.month != expected_next_date.month
+            ):
                 raise ValidationError(
-                    "Debes registrar el mes consecutivo. El siguiente mes esperado es: "
+                    "Debes registrar el mes consecutivo. "
+                    "El siguiente mes esperado es: "
                     f"{expected_next_date.strftime('%B %Y')}"
                 )
 
-            # (Opcional) Verificar que current_reading >= last_reading.current_reading
-            if current_reading < last_reading.current_reading:
-                raise ValidationError(
-                    "La lectura actual no puede ser menor que la última lectura registrada."
-                )
-        else:
-            # Si no hay lecturas previas, esta es la primera: no hay mes anterior que validar.
-            pass
+            # Solo validar continuidad de lectura
+            # si sigue siendo el mismo medidor
+            if meter and last_reading.meter_id == meter.id:
+
+                if current_reading < last_reading.current_reading:
+                    raise ValidationError(
+                        "La lectura actual no puede ser menor "
+                        "que la última lectura registrada."
+                    )
 
         return data
 
