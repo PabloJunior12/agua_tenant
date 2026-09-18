@@ -369,6 +369,8 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
     @action(detail=False, methods=["get"], url_path="report/debt")
     def report(self, request):
 
+
+        return
         # ==========================================
         # DEUDAS PENDIENTES AGRUPADAS POR CLIENTE
         # ==========================================
