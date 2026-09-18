@@ -369,11 +369,9 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
     @action(detail=False, methods=["get"], url_path="report/debt")
     def report(self, request):
 
-
-        return
-        # ==========================================
+        # =====================================================
         # DEUDAS PENDIENTES AGRUPADAS POR CLIENTE
-        # ==========================================
+        # =====================================================
 
         debt_summary = (
             Debt.objects
@@ -387,97 +385,221 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             .order_by("customer_id")
         )
 
-        # IDs de clientes que realmente tienen deuda
-        customer_ids = [
-            item["customer_id"]
-            for item in debt_summary
-        ]
-
-        # ==========================================
-        # RESUMEN DE DEUDAS EN UN DICCIONARIO
-        # ==========================================
+        # =====================================================
+        # CONVERTIR A DICCIONARIO
+        # =====================================================
 
         debt_map = {
             item["customer_id"]: item
             for item in debt_summary
         }
 
-        # ==========================================
+        customer_ids = list(debt_map.keys())
+
+        if not customer_ids:
+            return Response({
+                "message": "No existen deudas pendientes."
+            })
+
+        # =====================================================
         # CLIENTES
-        # ==========================================
+        # =====================================================
 
         customers = (
             Customer.objects
             .filter(id__in=customer_ids)
-            .order_by("id")
+            .select_related(
+                "category",
+                "manzana",
+            )
             .prefetch_related(
                 Prefetch(
                     "meterassignment_set",
-                    queryset=MeterAssignment.objects
+                    queryset=(
+                        MeterAssignment.objects
                         .filter(is_active=True)
-                        .select_related("meter"),
+                        .select_related("meter")
+                    ),
                     to_attr="active_meter_assignments"
                 )
             )
+            .order_by("id")
         )
 
-        # Excluir primer registro
+        # =====================================================
+        # EXCLUIR PRIMER REGISTRO
+        # =====================================================
+
         customers = customers[1:]
 
-        # ==========================================
-        # DATA
-        # ==========================================
+        # =====================================================
+        # DATAFRAME
+        # =====================================================
 
-        data = []
+        rows = []
 
         total_general = Decimal("0.00")
 
         for customer in customers:
 
-            summary = debt_map[customer.id]
+            summary = debt_map.get(customer.id)
+
+            if not summary:
+                continue
 
             total = summary["total"] or Decimal("0.00")
 
             total_general += total
 
-            # Medidor activo
+            # ---------------------------------------------
+            # MEDIDOR ACTIVO
+            # ---------------------------------------------
+
             assignment = (
                 customer.active_meter_assignments[0]
                 if customer.active_meter_assignments
                 else None
             )
 
-            data.append({
-                "customer": customer,
-                "meter": assignment.meter if assignment else None,
-                "min_period": summary["min_period"],
-                "max_period": summary["max_period"],
-                "total": total,
+            meter_code = (
+                assignment.meter.code
+                if assignment and assignment.meter
+                else "-"
+            )
+
+            # ---------------------------------------------
+            # PERIODO
+            # ---------------------------------------------
+
+            min_period = summary["min_period"]
+            max_period = summary["max_period"]
+
+            if min_period and max_period:
+
+                periodo = (
+                    f"{min_period.strftime('%Y-%m')} - "
+                    f"{max_period.strftime('%Y-%m')}"
+                )
+
+            else:
+                periodo = "-"
+
+            # ---------------------------------------------
+            # DIRECCIÓN
+            # ---------------------------------------------
+
+            address = customer.address or "-"
+
+            sector = customer.sector or "-"
+            manzana = (
+                customer.manzana.codigo
+                if customer.manzana
+                else "-"
+            )
+
+            predio = customer.predio or "-"
+
+            direccion_completa = f"{address}"
+
+            catastro = f"5 5 {sector} {manzana} {predio}"
+
+            # ---------------------------------------------
+            # FILA
+            # ---------------------------------------------
+
+            rows.append({
+                "Código": customer.codigo or "-",
+                "Cliente": customer.full_name,
+                "Categoría": (
+                    customer.category.name
+                    if customer.category
+                    else "-"
+                ),
+                "Dirección": direccion_completa,
+                "Catastro": catastro,
+                "Medidor": meter_code,
+                "Periodo": periodo,
+                "Total (S/)": float(total),
             })
 
-        # ==========================================
-        # PDF
-        # ==========================================
+        # =====================================================
+        # DATAFRAME
+        # =====================================================
 
-        html_string = render_to_string(
-            "customer/report.html",
-            {
-                "data": data,
-                "total_general": total_general,
-                "date": datetime.now(),
-            }
+        df = pd.DataFrame(rows)
+
+        # =====================================================
+        # FILA TOTAL
+        # =====================================================
+
+        total_row = pd.DataFrame([{
+            "Código": "",
+            "Cliente": "",
+            "Categoría": "",
+            "Dirección": "",
+            "Catastro": "",
+            "Medidor": "",
+            "Periodo": "TOTAL GENERAL",
+            "Total (S/)": float(total_general),
+        }])
+
+        df = pd.concat(
+            [df, total_row],
+            ignore_index=True
         )
 
-        pdf = HTML(string=html_string).write_pdf()
+        # =====================================================
+        # EXCEL
+        # =====================================================
 
         response = HttpResponse(
-            pdf,
-            content_type="application/pdf"
+            content_type=(
+                "application/vnd.openxmlformats-officedocument"
+                ".spreadsheetml.sheet"
+            )
         )
 
         response["Content-Disposition"] = (
-            'filename="reporte_global_deudas.pdf"'
+            'attachment; filename="reporte_global_deudas.xlsx"'
         )
+
+        with pd.ExcelWriter(
+            response,
+            engine="openpyxl"
+        ) as writer:
+
+            df.to_excel(
+                writer,
+                index=False,
+                sheet_name="Deudas"
+            )
+
+            worksheet = writer.sheets["Deudas"]
+
+            # Ancho de columnas
+            widths = {
+                "A": 15,
+                "B": 35,
+                "C": 20,
+                "D": 50,
+                "E": 20,
+                "F": 15,
+                "G": 25,
+                "H": 15,
+            }
+
+            for column, width in widths.items():
+                worksheet.column_dimensions[column].width = width
+
+            # Congelar encabezado
+            worksheet.freeze_panes = "A2"
+
+            # Autofiltro
+            worksheet.auto_filter.ref = worksheet.dimensions
+
+            # Formato moneda
+            for cell in worksheet["G"][1:]:
+                cell.number_format = '#,##0.00'
 
         return response
 
