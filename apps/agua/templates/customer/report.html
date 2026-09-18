@@ -100,6 +100,7 @@
           <th>Codigo</th>
           <th>Cliente</th>
           <th>DNI/RUC</th>
+          <th>Categoria</th>
           <th>Rango de Periodo</th>
           <th>Total (S/)</th>
         </tr>
@@ -110,6 +111,7 @@
           <td>{{ item.customer.codigo }}</td>
           <td>{{ item.customer.full_name }}</td>
           <td>{{ item.customer.number|default:"sin DNI" }}</td>
+          <td>{{ item.customer.category.name }}</td>
           <td>
             {% if item.min_period and item.max_period %}
             {{ item.min_period|date:"Y-m" }} - {{ item.max_period|date:"Y-m" }}

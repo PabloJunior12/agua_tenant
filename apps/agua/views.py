@@ -377,7 +377,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         data = []
 
         total_general = Decimal("0.00")
-        customers = Customer.objects.all()
+        customers = Customer.objects.all()[1:]
 
         calle = None
         zona = None
