@@ -366,70 +366,117 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         serializer = CustomerWithDebtsSerializer(customer)
         return Response(serializer.data)
 
-    @action(detail=False, methods=["get"], url_path='report/debt')
-    def report(self,request):
+    @action(detail=False, methods=["get"], url_path="report/debt")
+    def report(self, request):
 
-        calle_id = request.query_params.get("calle")
-        zona_id = request.query_params.get("zona")
+        # ==========================================
+        # DEUDAS PENDIENTES AGRUPADAS POR CLIENTE
+        # ==========================================
 
-        debts = Debt.objects.filter(paid=False)
+        debt_summary = (
+            Debt.objects
+            .filter(paid=False)
+            .values("customer_id")
+            .annotate(
+                total=Sum("amount"),
+                min_period=Min("period"),
+                max_period=Max("period"),
+            )
+            .order_by("customer_id")
+        )
+
+        # IDs de clientes que realmente tienen deuda
+        customer_ids = [
+            item["customer_id"]
+            for item in debt_summary
+        ]
+
+        # ==========================================
+        # RESUMEN DE DEUDAS EN UN DICCIONARIO
+        # ==========================================
+
+        debt_map = {
+            item["customer_id"]: item
+            for item in debt_summary
+        }
+
+        # ==========================================
+        # CLIENTES
+        # ==========================================
+
+        customers = (
+            Customer.objects
+            .filter(id__in=customer_ids)
+            .order_by("id")
+            .prefetch_related(
+                Prefetch(
+                    "meterassignment_set",
+                    queryset=MeterAssignment.objects
+                        .filter(is_active=True)
+                        .select_related("meter"),
+                    to_attr="active_meter_assignments"
+                )
+            )
+        )
+
+        # Excluir primer registro
+        customers = customers[1:]
+
+        # ==========================================
+        # DATA
+        # ==========================================
 
         data = []
 
         total_general = Decimal("0.00")
-        customers = Customer.objects.all()[1:]
-
-        calle = None
-        zona = None
-        if calle_id:
-
-            calle = Calle.objects.get(pk=calle_id)
-            customers = customers.filter(calle_id=calle_id)
-
-        if zona_id:
-
-            zona = Zona.objects.get(pk=zona_id)
-            customers = customers.filter(zona_id=zona_id)
 
         for customer in customers:
 
-            customers_debts = debts.filter(customer=customer)
+            summary = debt_map[customer.id]
 
-            if not customers_debts.exists():
+            total = summary["total"] or Decimal("0.00")
 
-               continue
-               
-            sumary = customers_debts.aggregate(
-                total=Sum("amount"),
-                min_period=Min("period"),
-                max_period=Max("period")
+            total_general += total
+
+            # Medidor activo
+            assignment = (
+                customer.active_meter_assignments[0]
+                if customer.active_meter_assignments
+                else None
             )
 
-            total_general += sumary["total"] or Decimal("0.00")
-
             data.append({
-
-                "customer" : customer,
-                "min_period" : sumary["min_period"],
-                "max_period" : sumary["max_period"],
-                "total" : sumary["total"]
-
+                "customer": customer,
+                "meter": assignment.meter if assignment else None,
+                "min_period": summary["min_period"],
+                "max_period": summary["max_period"],
+                "total": total,
             })
-     
 
-        html_string = render_to_string("customer/report.html",{
+        # ==========================================
+        # PDF
+        # ==========================================
 
-            "data":data,
-            "total_general":total_general,
-            "date":datetime.now(),
-            "calle": calle,
-            "zona": zona
-
-        })
+        html_string = render_to_string(
+            "customer/report.html",
+            {
+                "data": data,
+                "total_general": total_general,
+                "date": datetime.now(),
+            }
+        )
 
         pdf = HTML(string=html_string).write_pdf()
-        response = HttpResponse(pdf, content_type="application/pdf")
-        response["Content-Disposition"] = f'filename="reporte_global_deudas.pdf"'
+
+        response = HttpResponse(
+            pdf,
+            content_type="application/pdf"
+        )
+
+        response["Content-Disposition"] = (
+            'filename="reporte_global_deudas.pdf"'
+        )
+
         return response
 
     @action(detail=True, methods=['get'], url_path='report/debt-history')

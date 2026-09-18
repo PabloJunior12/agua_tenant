@@ -97,35 +97,89 @@
     <table>
       <thead>
         <tr>
-          <th>Codigo</th>
+          <th>Código</th>
           <th>Cliente</th>
-          <th>DNI/RUC</th>
           <th>Categoria</th>
-          <th>Rango de Periodo</th>
+          <th>Dirección</th>
+          <th>Medidor</th>
+          <th>Periodo</th>
           <th>Total (S/)</th>
         </tr>
       </thead>
+
       <tbody>
+
         {% for item in data %}
+
         <tr>
-          <td>{{ item.customer.codigo }}</td>
-          <td>{{ item.customer.full_name }}</td>
-          <td>{{ item.customer.number|default:"sin DNI" }}</td>
-          <td>{{ item.customer.category.name }}</td>
+
+          <!-- Código -->
           <td>
-            {% if item.min_period and item.max_period %}
-            {{ item.min_period|date:"Y-m" }} - {{ item.max_period|date:"Y-m" }}
+            {{ item.customer.codigo|default:"-" }}
+          </td>
+
+          <!-- Cliente -->
+          <td>
+            {{ item.customer.full_name }}
+          </td>
+
+          <!-- Documento -->
+          <td>
+            {{ item.customer.category.name }}
+          </td>
+
+          <!-- Dirección -->
+          <td>
+            <div>
+              {{ item.customer.address|default:"-" }}
+            </div>
+           
+            <div>
+              <b> 5 5 {{ item.customer.sector }} {{ item.customer.manzana.codigo }} {{ item.customer.predio }}</b>
+            </div>
+          </td>
+
+   
+
+          <!-- Medidor -->
+          <td>
+            {% if item.meter %}
+            {{ item.meter.code }}
             {% else %}
             -
             {% endif %}
           </td>
-          <td style="text-align: right;">{{ item.total|floatformat:2 }}</td>
+
+          <!-- Periodo -->
+          <td>
+            {% if item.min_period and item.max_period %}
+            {{ item.min_period|date:"Y-m" }}
+            -
+            {{ item.max_period|date:"Y-m" }}
+            {% else %}
+            -
+            {% endif %}
+          </td>
+
+          <!-- Total -->
+          <td style="text-align: right;">
+            {{ item.total|floatformat:2 }}
+          </td>
+
         </tr>
+
         {% endfor %}
+
         <tr class="total">
-          <td colspan="4" style="text-align: right;">TOTAL GENERAL</td>
-          <td style="text-align: right;">{{ total_general|floatformat:2 }}</td>
+          <td colspan="6" style="text-align: right;">
+            TOTAL GENERAL
+          </td>
+
+          <td style="text-align: right;">
+            {{ total_general|floatformat:2 }}
+          </td>
         </tr>
+
       </tbody>
     </table>
   </main>
