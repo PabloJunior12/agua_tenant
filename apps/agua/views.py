@@ -42,7 +42,7 @@ from .serializers import (
     ReadingSerializer,  InvoiceSerializer, CategorySerializer, ZonaSerializer, ConfigSerializer, ReadingGenerationSerializer, CashConceptSerializer, DailyCashReportSerializer)
 
 from .filters import ReadingFilter, DebtFilter
-from .utils import get_catastral_queryset,  get_concept_total, get_full_catastral_queryset, calcular_igv_simple, obtener_calle, obtener_billing_type, get_morosos_queryset, to_none_if_empty, clean_value, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
+from .utils import get_catastral_queryset,  registrar_auditoria, get_concept_total, get_full_catastral_queryset, calcular_igv_simple, obtener_calle, obtener_billing_type, get_morosos_queryset, to_none_if_empty, clean_value, to_none_if_empty_has_meter, to_decimal_or_none, generar_periodos, format_period, generate_daily_report, generar_codigo_medidor_unico, procesar_pago
 from .core.mixins import TenantSafeMixin
 
 import re
@@ -3393,6 +3393,25 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             reading=reading,
         )
 
+        registrar_auditoria(
+            user_id=request.user.id,
+            action="create",
+            instance=debt,
+            new_data={
+                "customer_id": debt.customer_id,
+                "period": str(debt.period),
+                "description": debt.description,
+                "amount": str(debt.amount),
+                "paid": debt.paid,
+                "is_refinanced": debt.is_refinanced,
+                "reading_id": debt.reading_id,
+            },
+            description="Creación de deuda",
+            ip_address=request.META.get("REMOTE_ADDR"),
+            user_agent=request.META.get("HTTP_USER_AGENT"),
+        )
+
+
         # =========================
         # DETALLE DE CONCEPTOS
         # =========================
@@ -3441,6 +3460,28 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         instance = self.get_object()
         data = request.data
 
+        # ==========================================
+        # ESTADO ANTERIOR
+        # ==========================================
+
+        old_data = {
+            "customer_id": instance.customer_id,
+            "period": str(instance.period),
+            "description": instance.description,
+            "amount": str(instance.amount),
+            "paid": instance.paid,
+            "is_refinanced": instance.is_refinanced,
+            "reading_id": instance.reading_id,
+            "details": [
+                {
+                    "id": detail.id,
+                    "concept_id": detail.concept_id,
+                    "amount": str(detail.amount),
+                }
+                for detail in instance.details.all()
+            ],
+        }
+
         details_data = data.get("details", [])
 
         sent_ids = [d.get("id") for d in details_data if d.get("id")]
@@ -3468,144 +3509,76 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         instance.amount = total
         instance.save()
 
+        new_data = {
+            "customer_id": instance.customer_id,
+            "period": str(instance.period),
+            "description": instance.description,
+            "amount": str(instance.amount),
+            "paid": instance.paid,
+            "is_refinanced": instance.is_refinanced,
+            "reading_id": instance.reading_id,
+            "details": [
+                {
+                    "id": detail.id,
+                    "concept_id": detail.concept_id,
+                    "amount": str(detail.amount),
+                }
+                for detail in instance.details.all()
+            ],
+        }
+
+        registrar_auditoria(
+            user_id=request.user.id,
+            action="update",
+            instance=instance,
+            old_data=old_data,
+            new_data=new_data,
+            description="Modificación de deuda",
+            ip_address=request.META.get("REMOTE_ADDR"),
+            user_agent=request.META.get("HTTP_USER_AGENT"),
+        )
+
         serializer = self.get_serializer(instance)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    # @action(detail=False, methods=['post'])
-    # def import_excel(self, request):
-    #     file = request.FILES.get('file')
-    #     if not file:
-    #         return Response({'error': 'No se proporciono un archivo.'}, status=status.HTTP_400_BAD_REQUEST)
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
 
-    #     try:
-    #         df = pd.read_excel(
-    #             file,
-    #             engine='openpyxl',
-    #             # header=2,
-    #             dtype={'Codigo': str}
-    #         )
+        instance = self.get_object()
 
-    #         df['Codigo'] = df['Codigo'].astype(str).str.strip().str[-5:].str.zfill(5)
-    #     except Exception as e:
-    #         return Response({'error': f'Error al leer el archivo: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+        old_data = {
+            "customer_id": instance.customer_id,
+            "period": str(instance.period),
+            "description": instance.description,
+            "amount": str(instance.amount),
+            "paid": instance.paid,
+            "is_refinanced": instance.is_refinanced,
+            "reading_id": instance.reading_id,
+            "details": [
+                {
+                    "id": detail.id,
+                    "concept_id": detail.concept_id,
+                    "amount": str(detail.amount),
+                }
+                for detail in instance.details.all()
+            ],
+        }
 
-    #     errores = []
-    #     procesados = 0
+        registrar_auditoria(
+            user_id=request.user.id,
+            action="delete",
+            instance=instance,
+            old_data=old_data,
+            description="Eliminación de deuda",
+            ip_address=request.META.get("REMOTE_ADDR"),
+            user_agent=request.META.get("HTTP_USER_AGENT"),
+        )
 
-    #     # 🔹 Precargar conceptos
-    #     conceptos = {
-    #         "001": CashConcept.objects.get(code="001"),
-    #         "002": CashConcept.objects.get(code="002"),
-    #         # "003": CashConcept.objects.get(code="003"),
-    #         # "004": CashConcept.objects.get(code="004"),
-    #         # "005": CashConcept.objects.get(code="005"),
-    #     }
+        instance.delete()
 
-    #     # 🔹 Precargar clientes del Excel
-    #     codigos_excel = df['Codigo'].unique()
-    #     clientes = {
-    #         c.codigo: c
-    #         for c in Customer.objects.filter(codigo__in=codigos_excel)
-    #     }
-
-    #     debts_to_create = []
-    #     details_to_create = []
-
-    #     try:
-
-    #         cargo_fijo = CashConcept.objects.get(code="003")
-
-    #     except CashConcept.DoesNotExist:
-
-    #         cargo_fijo = None
-
-    #     total_fixed_charge = cargo_fijo.total if cargo_fijo else Decimal("0.00")
-    #     # df = df.head(2)
-
-    #     for row in df.itertuples(index=False):
-
-    #         codigo = str(row.Codigo)
-
-  
-
-    #         year = row.anio
-    #         meses_texto = to_none_if_empty(row.Meses)
-    #         total = to_decimal_or_none(row.Agua)
-
-    #         if year != 2026:
-    #             if not meses_texto:
-    #                 errores.append({"codigo": codigo, "anio": year, "total": total, "error": "Campo 'Meses' vacio"})
-    #                 continue
-
-    #             customer = clientes.get(codigo)
-    #             if not customer:
-    #                 errores.append({"codigo": codigo, "anio": year, "meses": meses_texto, "total": total, "error": "Cliente no encontrado"})
-    #                 continue
-
-    #             try:
-    #                 periodos = generar_periodos(int(year), meses_texto)
-    #             except Exception as e:
-    #                 errores.append({"codigo": codigo, "anio": year, "meses": meses_texto, "total": total, "error": f"Error al generar periodos: {str(e)}"})
-    #                 continue
-
-    #             # Calcular montos con precisión decimal
-    #             total_water = (Decimal(total) / Decimal(len(periodos))) if (total and len(periodos) > 0) else Decimal("0.00")
-    #             total_sewer = Decimal(customer.category.price_sewer or 0)
-    #             total_fixed_charge = Decimal(customer.category.price_fixed_charge or 0)
-
-    #             amount = total_water + total_sewer + total_fixed_charge
-    #             if amount <= Decimal("0.00"):
-    #                 print(f"Deuda ignorada para {codigo} monto 0")
-    #                 continue
-    #             for periodo in periodos:
-    #                 # 🔹 Obtener o crear debt en memoria, no en DB aún
-
-    #                 reading = Reading(
-    #                     customer=customer,
-    #                     period=periodo,
-    #                     current_reading=Decimal("0.000"),
-    #                     has_meter=customer.has_meter,
-    #                     total_water=total_water,
-    #                     total_sewer=total_sewer,
-    #                     total_fixed_charge=total_fixed_charge,
-    #                     total_amount=amount,
-    #                 )
-    #                 reading.save(skip_process=True)
-
-    #                 debt, created = Debt.objects.get_or_create(
-    #                     customer=customer,
-    #                     reading=reading,
-    #                     period=periodo,
-    #                     defaults={
-    #                         "description": "Deuda importada desde Excel",
-    #                         "amount": amount,
-    #                         "paid": False
-    #                     }
-    #                 )
-
-    #                 if not created:
-    #                     debt.amount = amount
-    #                     debt.save()
-    #                     debt.details.all().delete()
-
-    #                 # 🔹 Preparar detalles para bulk_create
-    #                 if total_water > 0:
-    #                     details_to_create.append(DebtDetail(debt=debt, concept=conceptos["001"], amount=total_water))
-    #                 if total_sewer > 0:
-    #                     details_to_create.append(DebtDetail(debt=debt, concept=conceptos["002"], amount=total_sewer))
-    #                 # if total_fixed_charge > 0:
-    #                 #     details_to_create.append(DebtDetail(debt=debt, concept=conceptos["003"], amount=total_fixed_charge))
-
-    #                 procesados += 1
-
-    #     # 🔹 Insertar todos los detalles de una vez
-    #     if details_to_create:
-    #         DebtDetail.objects.bulk_create(details_to_create)
-
-    #     return Response({
-    #         "procesados": procesados,
-    #         "errores": errores
-    #     }, status=status.HTTP_200_OK)
+        return Response(
+            status=status.HTTP_204_NO_CONTENT
+        )
 
     @action(detail=True, methods=["post"])
     def create_reading(self, request, pk=None):

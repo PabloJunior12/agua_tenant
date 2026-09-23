@@ -8,6 +8,84 @@ from django.utils.timezone import now
 from .utils import get_concept_total
 from .querysets import CustomerQuerySet
 
+class AuditLog(models.Model):
+
+    ACTION_CHOICES = [
+        ("create", "Creación"),
+        ("update", "Actualización"),
+        ("delete", "Eliminación"),
+        ("cancel", "Anulación"),
+        ("login", "Inicio de sesión"),
+        ("logout", "Cierre de sesión"),
+        ("other", "Otro"),
+    ]
+
+    user_id = models.IntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="ID del usuario del schema public"
+    )
+
+    action = models.CharField(
+        max_length=20,
+        choices=ACTION_CHOICES,
+        db_index=True
+    )
+
+    model = models.CharField(
+        max_length=100,
+        db_index=True
+    )
+
+    object_id = models.IntegerField(
+        null=True,
+        blank=True,
+        db_index=True
+    )
+
+    object_repr = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True
+    )
+
+    description = models.TextField(
+        null=True,
+        blank=True
+    )
+
+    old_data = models.JSONField(
+        null=True,
+        blank=True
+    )
+
+    new_data = models.JSONField(
+        null=True,
+        blank=True
+    )
+
+    ip_address = models.GenericIPAddressField(
+        null=True,
+        blank=True
+    )
+
+    user_agent = models.TextField(
+        null=True,
+        blank=True
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.action} - {self.model} #{self.object_id}"
+
 class Company(models.Model):
 
     name = models.CharField(max_length=255, verbose_name="Nombre de la empresa")
@@ -1401,3 +1479,4 @@ class ServiceRefinancingDetail(models.Model):
         ServiceCharge,
         on_delete=models.PROTECT
     )
+

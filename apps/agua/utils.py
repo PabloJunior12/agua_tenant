@@ -10,6 +10,8 @@ from django.utils.timezone import localdate
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
+
+
 MESES = {
     "ENERO": 1,
     "FEBRERO": 2,
@@ -542,3 +544,39 @@ def get_concept_total(system_key):
     ).first()
 
     return concept.total if concept else 0
+
+def registrar_auditoria(
+    *,
+    user_id=None,
+    action,
+    instance=None,
+    object_id=None,
+    old_data=None,
+    new_data=None,
+    description=None,
+    ip_address=None,
+    user_agent=None,
+):
+
+    from .models import AuditLog
+
+    if instance is not None:
+        model = instance.__class__.__name__
+        object_id = instance.pk
+        object_repr = str(instance)
+    else:
+        model = "Unknown"
+        object_repr = None
+
+    AuditLog.objects.create(
+        user_id=user_id,
+        action=action,
+        model=model,
+        object_id=object_id,
+        object_repr=object_repr,
+        description=description,
+        old_data=old_data,
+        new_data=new_data,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
