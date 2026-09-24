@@ -35,6 +35,7 @@ from apps.agua.core.permissions import GlobalPermissionMixin, TenantPaymentCreat
 from apps.tenant.utils.seed import generate_ticket
 from apps.tenant.models import Pay, ReceiptBatch
 from apps.user.models import User
+from apps.user.permissions import IsNotReadOnly
 
 from .models import Customer, CategoryZoneBlock, CategoryZone, ServiceRefinancingDetail, Manzana, CashMovement, ServiceCharge, Manzana, MeterAssignment, ServiceCut, Config, CutBatch, DailyCashReport, DebtRefinancing, DebtRefinancingDetail, RefinancingInstallment, WaterMeter, CashOutflow, CashBox, Reading, DebtDetail, CashConcept, Invoice, Category, Via, Calle, InvoiceDebt, InvoicePayment, Zona, Debt, ReadingGeneration, Company
 from .serializers import (
@@ -2259,6 +2260,7 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     serializer_class = ReadingSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_class = ReadingFilter
+    permission_classes = [IsNotReadOnly]
 
     def perform_update(self, serializer):
         instance = self.get_object()
@@ -3240,6 +3242,8 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     serializer_class = DebtSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_class = DebtFilter
+
+    permission_classes = [IsNotReadOnly]
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
@@ -4425,8 +4429,8 @@ class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend,filters.SearchFilter]
     filterset_fields = ['status']  
     search_fields = ['customer__codigo', 'customer__full_name', 'customer__number','code']
-
-    permission_classes = [TenantPaymentCreatePermission]
+   
+    permission_classes = [TenantPaymentCreatePermission, IsNotReadOnly]
 
     @action(detail=True, methods=['get'], url_path='ticket')
     def ticket_pdf(self, request, pk=None, **kwargs):

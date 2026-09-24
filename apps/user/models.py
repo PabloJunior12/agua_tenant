@@ -41,6 +41,11 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(default=False)
     is_admin = models.BooleanField(default=False) 
 
+    is_readonly = models.BooleanField(
+        default=False,
+        verbose_name='Solo lectura'
+    )
+
     objects = CustomUserManager()
     yape_token = models.CharField(max_length=64, blank=True, null=True)
     tenant = models.ForeignKey(Client, blank=True, null=True, on_delete=models.SET_NULL)
