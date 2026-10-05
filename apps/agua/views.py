@@ -3291,14 +3291,9 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             )
 
         # Evitar duplicados
-        if Debt.objects.filter(
-            customer=customer,
-            period=normalized_period
-        ).exists():
+        if Debt.objects.filter(customer=customer,period=normalized_period).exists():
 
-            raise ValidationError(
-                "Ya existe una deuda para este cliente y periodo."
-            )
+           raise ValidationError("Ya existe una deuda para este cliente y periodo.")
 
         # =========================
         # MONTOS BASE
@@ -3311,7 +3306,13 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         billing_type = customer.billing_type or "both"
 
+        if customer.special_amount:
+
+           total_water = customer.special_amount
+           total_sewer = customer.special_amount
+
         # Ajustar según tipo de facturación
+
         if billing_type == "water":
 
             total_sewer = Decimal("0.00")
@@ -3348,10 +3349,7 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         # TOTALES
         # =========================
 
-        total_amount_reading = (
-            total_water +
-            total_sewer
-        )
+        total_amount_reading = (total_water + total_sewer)
 
         total_amount_debt = (
             total_amount_reading +

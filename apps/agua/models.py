@@ -452,6 +452,19 @@ class Customer(models.Model):
     billing_type = models.CharField(max_length=10, choices=BILLING_TYPE_CHOICES, default='both')
     observation = models.TextField(null=True, blank=True) 
 
+    has_special_rate = models.BooleanField(
+        default=False,
+        verbose_name="Tiene tarifa especial"
+    )
+
+    special_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Monto especial"
+    )
+
     objects = CustomerQuerySet.as_manager()
 
     def get_category(self):
@@ -773,12 +786,15 @@ class Reading(models.Model):
         water = Decimal('0.00')
         sewer = Decimal('0.00')
 
-        print(tariff, from_zone)
-
         if from_zone:
 
            water = tariff.price_water
            sewer = tariff.price_sewer
+
+        elif self.customer.special_amount:
+
+           water = self.customer.special_amount
+           sewer = self.customer.special_amount
 
         else:
 
@@ -804,7 +820,7 @@ class Reading(models.Model):
                 water = tariff.price_water
                 sewer = tariff.price_sewer or Decimal('0.00')
 
-    
+
         if billing_type == "water":
 
             sewer = Decimal('0.00')
