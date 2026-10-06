@@ -1531,14 +1531,16 @@ class WaterMeterViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         meter = self.get_object()
 
         if meter.status != 'installed':
-            return Response({"error": "Solo medidores instalados pueden dañarse"}, status=400)
+
+           return Response({"error": "Solo medidores instalados pueden dañarse"}, status=400)
 
         assignment = meter.assignments.filter(is_active=True).first()
 
         if assignment:
-            assignment.is_active = False
-            assignment.removal_date = date.today()
-            assignment.save()
+
+           assignment.is_active = True
+           assignment.removal_date = date.today()
+           assignment.save()
 
         meter.status = 'damaged'
         meter.save()
@@ -1566,7 +1568,7 @@ class WaterMeterViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         if meter.status != 'maintenance':
             return Response({"error": "No está en mantenimiento"}, status=400)
 
-        meter.status = 'available'
+        meter.status = 'installed'
         meter.save()
 
         return Response({"ok": True})
@@ -1574,6 +1576,7 @@ class WaterMeterViewSet(TenantSafeMixin,viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def return_to_stock(self, request, pk=None):
 
+        return
         meter = self.get_object()
 
         if meter.status != 'removed':
