@@ -637,7 +637,6 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
 
         return response
 
-
     @action(detail=True, methods=['get'], url_path='report/debt-history')
     def report_debt_history(self, request, pk=None, **kwargs):
 
@@ -2446,18 +2445,23 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             return Response({"error": "No hay lecturas registradas"}, status=404)
         
         # conceptos que se deben mostrar en el recibo
-        master_concepts = CashConcept.objects.filter(is_master_view=True,state=True).order_by("id")
+        master_concepts = CashConcept.objects.filter(
+            is_master_view=True,
+            state=True
+        ).order_by("id")
 
-        # convertir detalles de deuda a diccionario
-        detail_map = {
-            detail.concept_id: detail.amount
-            for detail in debt.details.all()
-        }
+        # Obtener los importes originales solo si la deuda está pendiente
+        detail_map = {}
+
+        if debt and not debt.paid:
+            detail_map = {
+                detail.concept_id: detail.amount
+                for detail in debt.details.all()
+            }
 
         receipt_details = []
 
         for concept in master_concepts:
-
             receipt_details.append({
                 "concept": concept,
                 "amount": detail_map.get(concept.id, 0)
@@ -2561,15 +2565,23 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
             total_refinancing = pending_installment.total_amount
 
-        if debt.paid:
-
-            total_general = (total_previous_debt + total_other_services + total_refinancing)
-
+        if debt and not debt.paid:
+            total_month = debt.amount
         else:
+            total_month = 0
 
-            total_general = ( debt.amount + total_previous_debt + total_other_services + total_refinancing)
+        # Total de deudas anteriores, servicios y refinanciamiento
+        total_previous_debt_global = (
+            total_previous_debt
+            + total_other_services
+            + total_refinancing
+        )
 
-        total_previous_debt_global = (total_previous_debt +  total_other_services + total_refinancing)
+        # Total general a pagar
+        total_general = (
+            total_month
+            + total_previous_debt_global
+        )
 
         # armamos la misma estructura que en el masivo
         readings_context = [{
@@ -2584,7 +2596,20 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             "refinancing_data": refinancing_data,
             "total_general": total_general,
         }]
-        
+
+        print({
+            "debt": debt,
+            "details": receipt_details,
+            "reading": reading,
+            "grouped_debts": grouped_debts,
+            "total_previous_debt": total_previous_debt,
+            "total_other_services": total_other_services,
+            "total_previous_debt_global" : total_previous_debt_global,
+            "other_services": other_services,
+            "refinancing_data": refinancing_data,
+            "total_general": total_general,
+        })
+
 
         if tenant == 'chilca':
 

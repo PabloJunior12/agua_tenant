@@ -289,7 +289,9 @@
 
 <body>
     {% for ctx in readings_context %}
-    {% with reading=ctx.reading debt=ctx.debt details=ctx.details refinancing_data=ctx.refinancing_data other_services=ctx.other_services total_other_services=ctx.total_other_services total_previous_debt_global=ctx.total_previous_debt_global grouped=ctx.grouped_debts total_previous=ctx.total_previous_debt total_general=ctx.total_general %}
+   
+    {% with reading=ctx.reading debt=ctx.debt details=ctx.details refinancing_data=ctx.refinancing_data other_services=ctx.other_services total_other_services=ctx.total_other_services total_previous_debt_global=ctx.total_previous_debt_global grouped=ctx.grouped_debts total_previous=ctx.total_previous_debt total_month=ctx.total_month total_general=ctx.total_general %}
+
 
     <div class="page">
         <div class="name">
@@ -400,42 +402,46 @@
             </div>
 
             <!-- FACTURACION -->
-            <div class="facturacion debug">
-                <div class="titulo">
-                    DETALLE DE FACTURACIÓN
-                </div>
-                <table>
-                    {% for item in details %}
-                    <tr>
-                        <td class="label">
-                            {{ item.concept.name }}
-                        </td>
 
-                        <td class="amount">
-                            S/ {{ item.amount }}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                    <tr>
-                        <td class="label">
-                            Total del mes
-                        </td>
 
-                        <td class="amount">
-                            S/ {{ debt.amount }}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td class="label">
-                            Saldo deuda anterior
-                        </td>
 
-                        <td class="amount">
-                            S/ {{ total_previous_debt_global }}
-                        </td>
-                    </tr>
-                </table>
-            </div>
+<div class="facturacion debug">
+    <div class="titulo">
+        DETALLE DE FACTURACIÓN
+    </div>
+
+    <table>
+        {% for item in details %}
+        <tr>
+            <td class="label">
+                {{ item.concept.name }}
+            </td>
+            <td class="amount">
+                {% if debt.paid %}
+                    S/ 0.00
+                {% else %}
+                    S/ {{ item.amount|floatformat:2 }}
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+
+        <tr>
+            <td class="label">Total del mes</td>
+            <td class="amount">
+                S/ 0
+            </td>
+        </tr>
+
+        <tr>
+            <td class="label">Saldo deuda anterior</td>
+            <td class="amount">
+                S/ {{ total_previous_debt_global|floatformat:2 }}
+            </td>
+        </tr>
+    </table>
+</div>
+
             <!-- END FACTURACION -->
 
         </div>
