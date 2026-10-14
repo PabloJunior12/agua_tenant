@@ -16,7 +16,6 @@
             font-family: Arial;
         }
 
-
         .page {
             width: 148mm;
             height: 210mm;
@@ -286,12 +285,10 @@
 
     </style>
 </head>
-
 <body>
-    {% for ctx in readings_context %}
-   
-    {% with reading=ctx.reading debt=ctx.debt details=ctx.details refinancing_data=ctx.refinancing_data other_services=ctx.other_services total_other_services=ctx.total_other_services total_previous_debt_global=ctx.total_previous_debt_global grouped=ctx.grouped_debts total_previous=ctx.total_previous_debt total_month=ctx.total_month total_general=ctx.total_general %}
 
+    {% for ctx in readings_context %}
+    {% with reading=ctx.reading debt=ctx.debt details=ctx.details refinancing_data=ctx.refinancing_data other_services=ctx.other_services total_other_services=ctx.total_other_services total_previous_debt_global=ctx.total_previous_debt_global grouped=ctx.grouped_debts total_previous=ctx.total_previous_debt total_month=ctx.total_month total_general=ctx.total_general %}
 
     <div class="page">
         <div class="name">
@@ -474,5 +471,4 @@
     {% endwith %}
     {% endfor %}
 </body>
-
 </html>

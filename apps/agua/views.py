@@ -7,7 +7,7 @@ from django.utils.timezone import now, localdate
 from django.db import transaction, connection, IntegrityError
 from django.db.models import Max, Sum, Count, Min, Q, Prefetch, Exists, OuterRef, Subquery, DecimalField, IntegerField, Avg, Value, F, ExpressionWrapper
 from django.db.models.functions import Coalesce, Cast
-
+from django.utils.dateparse import parse_date
 from django_q.tasks import async_task
 from django_tenants.utils import schema_context
 
@@ -370,52 +370,42 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
     @action(detail=False, methods=["get"], url_path="report/debt")
     def report(self, request):
 
-        # =====================================================
-        # VALIDAR PERÍODO
-        # =====================================================
+        start_raw = request.query_params.get("start_date")
+        end_raw = request.query_params.get("end_date")
 
-        months = request.query_params.get("months", "global")
+        start_date = parse_date(start_raw) if start_raw else None
+        end_date = parse_date(end_raw) if end_raw else None
 
-        if months not in ("global", "2", "3"):
+        # Rechazar fechas con formato inválido
+        if start_raw and start_date is None:
             return Response(
-                {"message": "Período de deuda no válido."},
-                status=400
+                {"message": "La fecha de inicio no es válida. Usa el formato YYYY-MM-DD."},
+                status=400,
             )
 
-        # =====================================================
-        # DEUDAS PENDIENTES
-        # =====================================================
+        if end_raw and end_date is None:
+            return Response(
+                {"message": "La fecha de fin no es válida. Usa el formato YYYY-MM-DD."},
+                status=400,
+            )
 
+        if start_date and end_date and start_date > end_date:
+            return Response(
+                {"message": "La fecha de inicio no puede ser posterior a la fecha de fin."},
+                status=400,
+            )
+
+        # Deudas pendientes
         debts = Debt.objects.filter(paid=False)
 
-        # =====================================================
-        # FILTRAR POR MESES
-        # =====================================================
+        # Ambos filtros son inclusivos.
+        if start_date:
+            debts = debts.filter(period__gte=start_date)
 
-        if months in ("2", "3"):
+        if end_date:
+            debts = debts.filter(period__lte=end_date)
 
-            months_count = int(months)
-
-            # Primer día del mes actual
-            current_month = localdate().replace(day=1)
-
-            # Primer día del período solicitado
-            start_period = current_month - relativedelta(
-                months=months_count - 1
-            )
-
-            # Primer día del siguiente mes
-            end_period = current_month + relativedelta(months=1)
-
-            debts = debts.filter(
-                period__gte=start_period,
-                period__lt=end_period
-            )
-
-        # =====================================================
-        # AGRUPAR DEUDAS POR CLIENTE
-        # =====================================================
-
+        # Continúa aquí con la agrupación y generación del Excel:
         debt_summary = (
             debts
             .values("customer_id")
@@ -426,6 +416,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             )
             .order_by("customer_id")
         )
+
 
         debt_map = {
             item["customer_id"]: item
@@ -580,11 +571,14 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         # GENERAR EXCEL
         # =====================================================
 
-        filename = (
-            "reporte_global_deudas.xlsx"
-            if months == "global"
-            else f"reporte_deudas_{months}_meses.xlsx"
-        )
+        if start_date and end_date:
+            filename = f"reporte_deudas_{start_date}_{end_date}.xlsx"
+        elif end_date:
+            filename = f"reporte_deudas_hasta_{end_date}.xlsx"
+        elif start_date:
+            filename = f"reporte_deudas_desde_{start_date}.xlsx"
+        else:
+            filename = "reporte_global_deudas.xlsx"
 
         response = HttpResponse(
             content_type=(
@@ -6334,60 +6328,98 @@ class AtypicalConsumptionReportExcelView(TenantSafeMixin, APIView):
 
 class DebtByConceptReportAPIView(TenantSafeMixin, APIView):
 
-    def get(self, request):
+    @staticmethod
+    def _apply_date_range(queryset, field, start_date, end_date):
+        """Filtra por fechas según el tipo de campo Django."""
 
-        month = request.query_params.get("month")  # 2026-01
-        year = request.query_params.get("year")    # 2026
+        # Resolver el campo, incluyendo relaciones como debt__period.
+        model = queryset.model
+        field_object = None
 
-        # =====================================================
-        # VALIDAR FILTROS
-        # =====================================================
+        for part in field.split("__"):
+            field_object = model._meta.get_field(part)
 
-        filter_year = None
-        filter_month = None
+            if field_object.is_relation and field_object.related_model:
+                model = field_object.related_model
 
-        if month:
-            try:
-                date = datetime.strptime(month, "%Y-%m")
-                filter_year = date.year
-                filter_month = date.month
-            except ValueError:
-                return Response(
-                    {
-                        "detail": "El formato de month debe ser YYYY-MM. Ejemplo: 2026-01"
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-        elif year:
-            try:
-                filter_year = int(year)
-            except ValueError:
-                return Response(
-                    {
-                        "detail": "El formato de year debe ser YYYY. Ejemplo: 2026"
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-        # =====================================================
-        # 1. DEUDAS DE CONSUMO
-        # =====================================================
-
-        debt_details = DebtDetail.objects.filter(
-            debt__paid=False,
-            debt__is_refinanced=False
+        # DateTimeField necesita __date; DateField no.
+        lookup_field = (
+            f"{field}__date"
+            if field_object.get_internal_type() == "DateTimeField"
+            else field
         )
 
-        if filter_year:
-            debt_details = debt_details.filter(
-                debt__period__year=filter_year
+        if start_date:
+            queryset = queryset.filter(
+                **{f"{lookup_field}__gte": start_date}
             )
 
-        if filter_month:
-            debt_details = debt_details.filter(
-                debt__period__month=filter_month
+        if end_date:
+            queryset = queryset.filter(
+                **{f"{lookup_field}__lte": end_date}
             )
+
+        return queryset
+
+
+    @staticmethod
+    def _period_text(start_date, end_date):
+        if start_date and end_date:
+            return f"DEL {start_date:%d/%m/%Y} AL {end_date:%d/%m/%Y}"
+        if end_date:
+            return f"HASTA EL {end_date:%d/%m/%Y}"
+        if start_date:
+            return f"DESDE EL {start_date:%d/%m/%Y}"
+        return "DEUDA GLOBAL"
+
+    def get(self, request):
+        start_raw = request.query_params.get("start_date")
+        end_raw = request.query_params.get("end_date")
+
+        start_date = parse_date(start_raw) if start_raw else None
+        end_date = parse_date(end_raw) if end_raw else None
+
+        if start_raw and start_date is None:
+            return Response(
+                {
+                    "detail": (
+                        "La fecha de inicio no es válida. "
+                        "Usa el formato YYYY-MM-DD."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if end_raw and end_date is None:
+            return Response(
+                {
+                    "detail": (
+                        "La fecha de fin no es válida. "
+                        "Usa el formato YYYY-MM-DD."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if start_date and end_date and start_date > end_date:
+            return Response(
+                {
+                    "detail": (
+                        "La fecha de inicio no puede ser posterior "
+                        "a la fecha de fin."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 1. Deudas de consumo
+        debt_details = DebtDetail.objects.filter(
+            debt__paid=False,
+            debt__is_refinanced=False,
+        )
+        debt_details = self._apply_date_range(
+            debt_details, "debt__period", start_date, end_date
+        )
 
         consumption_debts = (
             debt_details
@@ -6397,30 +6429,18 @@ class DebtByConceptReportAPIView(TenantSafeMixin, APIView):
                 "concept__name",
                 "concept__system_key",
             )
-            .annotate(
-                total=Sum("amount")
-            )
+            .annotate(total=Sum("amount"))
             .order_by("concept__name")
         )
 
-        # =====================================================
-        # 2. OTROS CARGOS
-        # =====================================================
-
+        # 2. Otros cargos
         service_charges = ServiceCharge.objects.filter(
             status="pending",
-            is_refinanced=False
+            is_refinanced=False,
         )
-
-        if filter_year:
-            service_charges = service_charges.filter(
-                created_at__year=filter_year
-            )
-
-        if filter_month:
-            service_charges = service_charges.filter(
-                created_at__month=filter_month
-            )
+        service_charges = self._apply_date_range(
+            service_charges, "created_at", start_date, end_date
+        )
 
         service_debts = (
             service_charges
@@ -6430,137 +6450,82 @@ class DebtByConceptReportAPIView(TenantSafeMixin, APIView):
                 "concept__name",
                 "concept__system_key",
             )
-            .annotate(
-                total=Sum("amount")
-            )
+            .annotate(total=Sum("amount"))
             .order_by("concept__name")
         )
 
-        # =====================================================
-        # 3. FRACCIONAMIENTOS
-        # =====================================================
-
-        installments = RefinancingInstallment.objects.filter(
-            paid=False
+        # 3. Fraccionamientos
+        installments = RefinancingInstallment.objects.filter(paid=False)
+        installments = self._apply_date_range(
+            installments, "due_date", start_date, end_date
         )
 
-        if filter_year:
-            installments = installments.filter(
-                due_date__year=filter_year
-            )
-
-        if filter_month:
-            installments = installments.filter(
-                due_date__month=filter_month
-            )
-
         refinancing_total = (
-            installments.aggregate(
-                total=Sum("total_amount")
-            )["total"]
+            installments.aggregate(total=Sum("total_amount"))["total"]
             or Decimal("0.00")
         )
 
-        # =====================================================
-        # ARMAR RESULTADOS
-        # =====================================================
-
+        # Armar resultados
         results = []
 
         for item in consumption_debts:
-            results.append({
-                "source": "debt",
-                "concept_id": item["concept_id"],
-                "code": item["concept__code"],
-                "concept": item["concept__name"],
-                "system_key": item["concept__system_key"],
-                "total": item["total"],
-            })
+            results.append(
+                {
+                    "source": "debt",
+                    "concept_id": item["concept_id"],
+                    "code": item["concept__code"],
+                    "concept": item["concept__name"],
+                    "system_key": item["concept__system_key"],
+                    "total": item["total"] or Decimal("0.00"),
+                }
+            )
 
         for item in service_debts:
-            results.append({
-                "source": "service",
-                "concept_id": item["concept_id"],
-                "code": item["concept__code"],
-                "concept": item["concept__name"],
-                "system_key": item["concept__system_key"],
-                "total": item["total"],
-            })
+            results.append(
+                {
+                    "source": "service",
+                    "concept_id": item["concept_id"],
+                    "code": item["concept__code"],
+                    "concept": item["concept__name"],
+                    "system_key": item["concept__system_key"],
+                    "total": item["total"] or Decimal("0.00"),
+                }
+            )
 
-        # Solo agregar fraccionamiento si existe deuda
         if refinancing_total > 0:
-            results.append({
-                "source": "refinancing",
-                "concept_id": None,
-                "code": None,
-                "concept": "Fraccionamiento",
-                "system_key": None,
-                "total": refinancing_total,
-            })
-
-        # =====================================================
-        # TOTAL GENERAL
-        # =====================================================
+            results.append(
+                {
+                    "source": "refinancing",
+                    "concept_id": None,
+                    "code": None,
+                    "concept": "Fraccionamiento",
+                    "system_key": None,
+                    "total": refinancing_total,
+                }
+            )
 
         total_general = sum(
             (item["total"] for item in results),
-            Decimal("0.00")
+            Decimal("0.00"),
         )
-
-        if month:
-            date = datetime.strptime(month, "%Y-%m")
-
-            months = [
-                "",
-                "ENERO",
-                "FEBRERO",
-                "MARZO",
-                "ABRIL",
-                "MAYO",
-                "JUNIO",
-                "JULIO",
-                "AGOSTO",
-                "SEPTIEMBRE",
-                "OCTUBRE",
-                "NOVIEMBRE",
-                "DICIEMBRE",
-            ]
-
-            period_text = (
-                f"{months[date.month]} {date.year}"
-            )
-
-        else:
-
-            period_text = f"AÑO {year}"
-
 
         html_string = render_to_string(
             "reports/debt_by_concept.html",
             {
-              "results": results,
-              "total_general": total_general,
-              "period_text": period_text
-            }
+                "results": results,
+                "total_general": total_general,
+                "period_text": self._period_text(start_date, end_date),
+            },
+            request=request,
         )
-
-
-        # =====================================================
-        # PDF
-        # =====================================================
 
         pdf = HTML(
             string=html_string,
-            base_url=request.build_absolute_uri("/")
+            base_url=request.build_absolute_uri("/"),
         ).write_pdf()
 
-        response = HttpResponse(
-            pdf,
-            content_type="application/pdf"
-        )
-
+        response = HttpResponse(pdf, content_type="application/pdf")
         response["Content-Disposition"] = (
             'inline; filename="reporte_deudas_por_concepto.pdf"'
         )
-
         return response

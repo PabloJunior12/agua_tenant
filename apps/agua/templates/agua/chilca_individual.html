@@ -38,13 +38,14 @@
             top: 30mm;
             left: 19mm;
 
-            width: 55mm; /* importante para que haga salto de línea */
+            width: 55mm;
+            /* importante para que haga salto de línea */
 
             font-size: 8px !important;
             line-height: 1.1;
 
             display: -webkit-box;
-          
+
             -webkit-box-orient: vertical;
 
             overflow: hidden;
@@ -217,7 +218,7 @@
 
         /* TOTAL FINAL */
 
-        .total-final{
+        .total-final {
 
             position: absolute;
             top: 129mm;
@@ -227,7 +228,7 @@
 
         }
 
-        .date_of_issue{
+        .date_of_issue {
 
             position: absolute;
             top: 140mm;
@@ -237,7 +238,7 @@
 
         }
 
-        .date_of_due{
+        .date_of_due {
 
             position: absolute;
             top: 140mm;
@@ -246,7 +247,7 @@
 
         }
 
-        .talon{
+        .talon {
 
             width: 100mm;
             position: absolute;
@@ -257,41 +258,38 @@
 
         }
 
-        .date_of_due_last{
+        .date_of_due_last {
 
             position: absolute;
-            bottom:8mm;
+            bottom: 8mm;
             left: 15mm;
             font-size: 4mm;
 
         }
 
-        .ciclo_facturado_2{
+        .ciclo_facturado_2 {
 
             position: absolute;
-            bottom:8mm;
+            bottom: 8mm;
             left: 61mm;
             font-size: 4mm;
 
         }
 
-        .total_paid_2{
+        .total_paid_2 {
 
             position: absolute;
-            bottom:8mm;
+            bottom: 8mm;
             right: 25mm;
             font-size: 4mm;
 
         }
-
     </style>
 </head>
 
 <body>
     {% for ctx in readings_context %}
-   
     {% with reading=ctx.reading debt=ctx.debt details=ctx.details refinancing_data=ctx.refinancing_data other_services=ctx.other_services total_other_services=ctx.total_other_services total_previous_debt_global=ctx.total_previous_debt_global grouped=ctx.grouped_debts total_previous=ctx.total_previous_debt total_month=ctx.total_month total_general=ctx.total_general %}
-
 
     <div class="page">
         <div class="name">
@@ -338,12 +336,7 @@
                 <tr>
                     <td><strong>Consumo:</strong></td>
                     <td>
-                        {% if reading.consumption < 0 %}
-                            0
-                        {% else %}
-                            {{ reading.consumption }}
-                        {% endif %}
-                    </td>
+                        {% if reading.consumption < 0 %} 0 {% else %} {{ reading.consumption }} {% endif %} </td>
                 </tr>
             </table>
 
@@ -359,7 +352,7 @@
 
                 <div class="titulo">DEUDAS ANTERIORES</div>
 
-             
+
                 <table>
                     {% if grouped %}
                     {% for d in grouped %}
@@ -371,7 +364,7 @@
                         <td class="amount">S/ {{ d.total }}</td>
                     </tr>
                     {% endfor %}
-                     {% endif %}
+                    {% endif %}
 
                     {% for s in other_services %}
                     <tr>
@@ -398,48 +391,48 @@
                     </tr>
 
                 </table>
-             
+
             </div>
 
             <!-- FACTURACION -->
 
 
 
-<div class="facturacion debug">
-    <div class="titulo">
-        DETALLE DE FACTURACIÓN
-    </div>
+            <div class="facturacion debug">
+                <div class="titulo">
+                    DETALLE DE FACTURACIÓN
+                </div>
 
-    <table>
-        {% for item in details %}
-        <tr>
-            <td class="label">
-                {{ item.concept.name }}
-            </td>
+                <table>
+                    {% for item in details %}
+                    <tr>
+                        <td class="label">
+                            {{ item.concept.name }}
+                        </td>
 
-            <td class="amount">
-                S/ {{ item.amount|floatformat:2 }}
-            </td>
-        </tr>
-        {% endfor %}
+                        <td class="amount">
+                            S/ {{ item.amount|floatformat:2 }}
+                        </td>
+                    </tr>
+                    {% endfor %}
 
-        <tr>
-            <td class="label">Total del mes</td>
-            <td class="amount">
-                S/ {{ total_month|default_if_none:0|floatformat:2 }}
-            </td>
-        </tr>
-        <tr>
-            <td class="label">
-                Saldo deuda anterior
-            </td>
+                    <tr>
+                        <td class="label">Total del mes</td>
+                        <td class="amount">
+                            S/ {{ total_month|default_if_none:0|floatformat:2 }}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="label">
+                            Saldo deuda anterior
+                        </td>
 
-            <td class="amount">
-                S/ {{ total_previous_debt_global|default_if_none:0|floatformat:2 }}
-            </td>
-        </tr>
-    </table>
-</div>
+                        <td class="amount">
+                            S/ {{ total_previous_debt_global|default_if_none:0|floatformat:2 }}
+                        </td>
+                    </tr>
+                </table>
+            </div>
             <!-- END FACTURACION -->
 
         </div>
@@ -455,7 +448,7 @@
             "Cancele a tiempo su Recibo para evitar corte y pago de reapertura por el servicio"
 
         </div>
-        
+
         <div class="date_of_due_last">{{ reading.date_of_due|date:"d-m-Y" }}</div>
 
         <div class="ciclo_facturado_2">
