@@ -371,12 +371,53 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
     def report(self, request):
 
         # =====================================================
-        # DEUDAS PENDIENTES AGRUPADAS POR CLIENTE
+        # VALIDAR PERÍODO
+        # =====================================================
+
+        months = request.query_params.get("months", "global")
+
+        if months not in ("global", "2", "3"):
+            return Response(
+                {"message": "Período de deuda no válido."},
+                status=400
+            )
+
+        # =====================================================
+        # DEUDAS PENDIENTES
+        # =====================================================
+
+        debts = Debt.objects.filter(paid=False)
+
+        # =====================================================
+        # FILTRAR POR MESES
+        # =====================================================
+
+        if months in ("2", "3"):
+
+            months_count = int(months)
+
+            # Primer día del mes actual
+            current_month = localdate().replace(day=1)
+
+            # Primer día del período solicitado
+            start_period = current_month - relativedelta(
+                months=months_count - 1
+            )
+
+            # Primer día del siguiente mes
+            end_period = current_month + relativedelta(months=1)
+
+            debts = debts.filter(
+                period__gte=start_period,
+                period__lt=end_period
+            )
+
+        # =====================================================
+        # AGRUPAR DEUDAS POR CLIENTE
         # =====================================================
 
         debt_summary = (
-            Debt.objects
-            .filter(paid=False)
+            debts
             .values("customer_id")
             .annotate(
                 total=Sum("amount"),
@@ -386,10 +427,6 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             .order_by("customer_id")
         )
 
-        # =====================================================
-        # CONVERTIR A DICCIONARIO
-        # =====================================================
-
         debt_map = {
             item["customer_id"]: item
             for item in debt_summary
@@ -398,12 +435,13 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         customer_ids = list(debt_map.keys())
 
         if not customer_ids:
-            return Response({
-                "message": "No existen deudas pendientes."
-            })
+            return Response(
+                {"message": "No existen deudas pendientes para el período seleccionado."},
+                status=404
+            )
 
         # =====================================================
-        # CLIENTES
+        # OBTENER CLIENTES
         # =====================================================
 
         customers = (
@@ -427,18 +465,14 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             .order_by("id")
         )
 
-        # =====================================================
-        # EXCLUIR PRIMER REGISTRO
-        # =====================================================
-
+        # Mantener tu comportamiento actual
         customers = customers[1:]
 
         # =====================================================
-        # DATAFRAME
+        # CONSTRUIR FILAS DEL EXCEL
         # =====================================================
 
         rows = []
-
         total_general = Decimal("0.00")
 
         for customer in customers:
@@ -449,13 +483,9 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                 continue
 
             total = summary["total"] or Decimal("0.00")
-
             total_general += total
 
-            # ---------------------------------------------
-            # MEDIDOR ACTIVO
-            # ---------------------------------------------
-
+            # Medidor activo
             assignment = (
                 customer.active_meter_assignments[0]
                 if customer.active_meter_assignments
@@ -468,30 +498,22 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                 else "-"
             )
 
-            # ---------------------------------------------
-            # PERIODO
-            # ---------------------------------------------
-
+            # Período de deuda
             min_period = summary["min_period"]
             max_period = summary["max_period"]
 
             if min_period and max_period:
-
                 periodo = (
                     f"{min_period.strftime('%Y-%m')} - "
                     f"{max_period.strftime('%Y-%m')}"
                 )
-
             else:
                 periodo = "-"
 
-            # ---------------------------------------------
-            # DIRECCIÓN
-            # ---------------------------------------------
-
+            # Dirección y catastro
             address = customer.address or "-"
-
             sector = customer.sector or "-"
+
             manzana = (
                 customer.manzana.codigo
                 if customer.manzana
@@ -500,13 +522,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
 
             predio = customer.predio or "-"
 
-            direccion_completa = f"{address}"
-
             catastro = f"5 5 {sector} {manzana} {predio}"
-
-            # ---------------------------------------------
-            # FILA
-            # ---------------------------------------------
 
             rows.append({
                 "Código": customer.codigo or "-",
@@ -516,7 +532,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                     if customer.category
                     else "-"
                 ),
-                "Dirección": direccion_completa,
+                "Dirección": address,
                 "Catastro": catastro,
                 "Medidor": meter_code,
                 "Periodo": periodo,
@@ -527,10 +543,21 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         # DATAFRAME
         # =====================================================
 
-        df = pd.DataFrame(rows)
+        columns = [
+            "Código",
+            "Cliente",
+            "Categoría",
+            "Dirección",
+            "Catastro",
+            "Medidor",
+            "Periodo",
+            "Total (S/)",
+        ]
+
+        df = pd.DataFrame(rows, columns=columns)
 
         # =====================================================
-        # FILA TOTAL
+        # FILA TOTAL GENERAL
         # =====================================================
 
         total_row = pd.DataFrame([{
@@ -550,8 +577,14 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         )
 
         # =====================================================
-        # EXCEL
+        # GENERAR EXCEL
         # =====================================================
+
+        filename = (
+            "reporte_global_deudas.xlsx"
+            if months == "global"
+            else f"reporte_deudas_{months}_meses.xlsx"
+        )
 
         response = HttpResponse(
             content_type=(
@@ -561,7 +594,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
         )
 
         response["Content-Disposition"] = (
-            'attachment; filename="reporte_global_deudas.xlsx"'
+            f'attachment; filename="{filename}"'
         )
 
         with pd.ExcelWriter(
@@ -586,7 +619,7 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
                 "E": 20,
                 "F": 15,
                 "G": 25,
-                "H": 15,
+                "H": 18,
             }
 
             for column, width in widths.items():
@@ -598,11 +631,12 @@ class CustomerViewSet(TenantSafeMixin, GlobalPermissionMixin, viewsets.ModelView
             # Autofiltro
             worksheet.auto_filter.ref = worksheet.dimensions
 
-            # Formato moneda
-            for cell in worksheet["G"][1:]:
-                cell.number_format = '#,##0.00'
+            # Formato monetario de la columna H
+            for cell in worksheet["H"][1:]:
+                cell.number_format = '"S/ " #,##0.00'
 
         return response
+
 
     @action(detail=True, methods=['get'], url_path='report/debt-history')
     def report_debt_history(self, request, pk=None, **kwargs):
