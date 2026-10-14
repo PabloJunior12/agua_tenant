@@ -2577,7 +2577,7 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             + total_refinancing
         )
 
-        # Total general a pagar
+        # Importe total pendiente
         total_general = (
             total_month
             + total_previous_debt_global
@@ -2591,9 +2591,10 @@ class ReadingViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             "grouped_debts": grouped_debts,
             "total_previous_debt": total_previous_debt,
             "total_other_services": total_other_services,
-            "total_previous_debt_global" : total_previous_debt_global,
+            "total_previous_debt_global": total_previous_debt_global,
             "other_services": other_services,
             "refinancing_data": refinancing_data,
+            "total_month": total_month,
             "total_general": total_general,
         }]
 

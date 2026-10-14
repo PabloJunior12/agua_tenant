@@ -416,12 +416,9 @@
             <td class="label">
                 {{ item.concept.name }}
             </td>
+
             <td class="amount">
-                {% if debt.paid %}
-                    S/ 0.00
-                {% else %}
-                    S/ {{ item.amount|floatformat:2 }}
-                {% endif %}
+                S/ {{ item.amount|floatformat:2 }}
             </td>
         </tr>
         {% endfor %}
@@ -429,19 +426,21 @@
         <tr>
             <td class="label">Total del mes</td>
             <td class="amount">
-                S/ 0
+                S/ {{ total_month|default_if_none:0|floatformat:2 }}
             </td>
         </tr>
 
         <tr>
-            <td class="label">Saldo deuda anterior</td>
+            <td class="label">
+                Saldo deuda anterior
+            </td>
+
             <td class="amount">
-                S/ {{ total_previous_debt_global|floatformat:2 }}
+                S/ {{ total_previous_debt_global|default_if_none:0|floatformat:2 }}
             </td>
         </tr>
     </table>
 </div>
-
             <!-- END FACTURACION -->
 
         </div>

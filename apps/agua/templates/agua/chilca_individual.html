@@ -2,7 +2,6 @@
 <html lang="es">
 
 <head>
-    
     <meta charset="UTF-8">
     <title>Recibo de Agua</title>
     <style>
@@ -29,15 +28,15 @@
 
         .name {
             position: absolute;
-            top: 30mm;
-            left: 21mm;
+            top: 24mm;
+            left: 18mm;
             font-size: 10px !important;
         }
 
         .address {
             position: absolute;
-            top: 35mm;
-            left: 22mm;
+            top: 30mm;
+            left: 19mm;
 
             width: 55mm; /* importante para que haga salto de línea */
 
@@ -57,56 +56,56 @@
 
         .zona {
             position: absolute;
-            top: 45mm;
-            left: 18mm;
+            top: 42mm;
+            left: 17mm;
             font-size: 10px !important;
         }
 
         .codigo {
             position: absolute;
-            top: 8mm;
-            right: 46mm;
+            top: 3mm;
+            right: 45mm;
             font-size: 10px !important;
         }
 
         .id {
             position: absolute;
-            top: 8mm;
-            right: 16mm;
+            top: 3mm;
+            right: 15mm;
             font-size: 10px !important;
         }
 
         .meter-code {
             position: absolute;
-            top: 16mm;
+            top: 12mm;
             right: 43mm;
             font-size: 10px !important;
         }
 
         .ciclo-facturado {
             position: absolute;
-            top: 16mm;
+            top: 12mm;
             right: 13mm;
             font-size: 10px !important;
         }
 
         .codigo-catastral {
             position: absolute;
-            top: 26mm;
+            top: 22mm;
             right: 30mm;
             font-size: 10px !important;
         }
 
         .consumo {
             position: absolute;
-            top: 36mm;
+            top: 31mm;
             right: 32mm;
             font-size: 10px !important;
         }
 
         .tarifa {
             position: absolute;
-            top: 56mm;
+            top: 52.5mm;
             right: 64mm;
             font-size: 10px !important;
         }
@@ -119,7 +118,7 @@
             position: absolute;
 
             top: 76mm;
-            left: 13mm;
+            left: 10mm;
 
             width: 118mm;
             height: 48mm;
@@ -221,8 +220,8 @@
         .total-final{
 
             position: absolute;
-            top: 127mm;
-            right: 17mm;
+            top: 129mm;
+            right: 15mm;
             font-size: 4mm;
             font-weight: bold;
 
@@ -231,7 +230,7 @@
         .date_of_issue{
 
             position: absolute;
-            top: 136mm;
+            top: 140mm;
             left: 30mm;
             font-size: 4mm;
 
@@ -241,7 +240,7 @@
         .date_of_due{
 
             position: absolute;
-            top: 136mm;
+            top: 140mm;
             right: 30mm;
             font-size: 4mm;
 
@@ -261,7 +260,7 @@
         .date_of_due_last{
 
             position: absolute;
-            bottom:12mm;
+            bottom:8mm;
             left: 15mm;
             font-size: 4mm;
 
@@ -270,7 +269,7 @@
         .ciclo_facturado_2{
 
             position: absolute;
-            bottom:12mm;
+            bottom:8mm;
             left: 61mm;
             font-size: 4mm;
 
@@ -279,7 +278,7 @@
         .total_paid_2{
 
             position: absolute;
-            bottom:12mm;
+            bottom:8mm;
             right: 25mm;
             font-size: 4mm;
 
@@ -290,7 +289,9 @@
 
 <body>
     {% for ctx in readings_context %}
-    {% with reading=ctx.reading debt=ctx.debt details=ctx.details refinancing_data=ctx.refinancing_data other_services=ctx.other_services total_other_services=ctx.total_other_services total_previous_debt_global=ctx.total_previous_debt_global grouped=ctx.grouped_debts total_previous=ctx.total_previous_debt total_general=ctx.total_general %}
+   
+    {% with reading=ctx.reading debt=ctx.debt details=ctx.details refinancing_data=ctx.refinancing_data other_services=ctx.other_services total_other_services=ctx.total_other_services total_previous_debt_global=ctx.total_previous_debt_global grouped=ctx.grouped_debts total_previous=ctx.total_previous_debt total_month=ctx.total_month total_general=ctx.total_general %}
+
 
     <div class="page">
         <div class="name">
@@ -401,42 +402,44 @@
             </div>
 
             <!-- FACTURACION -->
-            <div class="facturacion debug">
-                <div class="titulo">
-                    DETALLE DE FACTURACIÓN
-                </div>
-                <table>
-                    {% for item in details %}
-                    <tr>
-                        <td class="label">
-                            {{ item.concept.name }}
-                        </td>
 
-                        <td class="amount">
-                            S/ {{ item.amount }}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                    <tr>
-                        <td class="label">
-                            Total del mes
-                        </td>
 
-                        <td class="amount">
-                            S/ {{ debt.amount }}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td class="label">
-                            Saldo deuda anterior
-                        </td>
 
-                        <td class="amount">
-                            S/ {{ total_previous_debt_global }}
-                        </td>
-                    </tr>
-                </table>
-            </div>
+<div class="facturacion debug">
+    <div class="titulo">
+        DETALLE DE FACTURACIÓN
+    </div>
+
+    <table>
+        {% for item in details %}
+        <tr>
+            <td class="label">
+                {{ item.concept.name }}
+            </td>
+
+            <td class="amount">
+                S/ {{ item.amount|floatformat:2 }}
+            </td>
+        </tr>
+        {% endfor %}
+
+        <tr>
+            <td class="label">Total del mes</td>
+            <td class="amount">
+                S/ {{ total_month|default_if_none:0|floatformat:2 }}
+            </td>
+        </tr>
+        <tr>
+            <td class="label">
+                Saldo deuda anterior
+            </td>
+
+            <td class="amount">
+                S/ {{ total_previous_debt_global|default_if_none:0|floatformat:2 }}
+            </td>
+        </tr>
+    </table>
+</div>
             <!-- END FACTURACION -->
 
         </div>
