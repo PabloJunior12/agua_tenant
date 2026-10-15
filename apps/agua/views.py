@@ -27,7 +27,7 @@ from babel.dates import format_date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from dateutil.relativedelta import relativedelta
 
@@ -1170,17 +1170,166 @@ class CashBoxViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         return Response({"message": f"Caja del {report.date} confirmada", "closing_balance": report.closing_balance})
 
     @action(detail=True, methods=["get"])
-    def report(self, request, pk=None, **kwargs):
-
+    def report_concept(self, request, pk=None, **kwargs):
+        
         cashbox = self.get_object()
         user = User.objects.filter(id=cashbox.user_id).first()
-        # 📌 Filtros de fechas
+
         start_date = request.query_params.get("start_date")
         end_date = request.query_params.get("end_date")
-        date_param = request.query_params.get("date")
 
+        # Parsear las fechas opcionales.
+        try:
+            start = (
+                datetime.strptime(start_date, "%Y-%m-%d").date()
+                if start_date
+                else None
+            )
+            end = (
+                datetime.strptime(end_date, "%Y-%m-%d").date()
+                if end_date
+                else None
+            )
+        except ValueError:
+            return Response(
+                {"error": "Formato de fecha inválido (use YYYY-MM-DD)"},
+                status=400,
+            )
+
+        if start and end and start > end:
+            return Response(
+                {"error": "La fecha de inicio no puede ser posterior a la fecha fin"},
+                status=400,
+            )
+
+        # Reporte global si no se envían fechas.
         movimientos = cashbox.movements.all()
         egresos = cashbox.outflows.all()
+        payments = cashbox.payments.select_related("invoice").all()
+
+        # Aplicar cada fecha de forma independiente:
+        # - Solo inicio: desde esa fecha en adelante.
+        # - Solo fin: hasta esa fecha.
+        # - Ambas: dentro del rango.
+        if start:
+            movimientos = movimientos.filter(created_at__date__gte=start)
+            egresos = egresos.filter(created_at__date__gte=start)
+            payments = payments.filter(created_at__date__gte=start)
+
+        if end:
+            movimientos = movimientos.filter(created_at__date__lte=end)
+            egresos = egresos.filter(created_at__date__lte=end)
+            payments = payments.filter(created_at__date__lte=end)
+
+        if start and end:
+            reporte_tipo = f"Reporte entre {start} y {end}"
+        elif start:
+            reporte_tipo = f"Reporte desde {start}"
+        elif end:
+            reporte_tipo = f"Reporte hasta {end}"
+        else:
+            reporte_tipo = "Reporte global"
+
+        # Excluir movimientos asociados a facturas anuladas.
+        movimientos_validos = movimientos.exclude(
+            invoice_payment__invoice__status="cancelled"
+        )
+
+        payments_validos = payments.exclude(invoice__status="cancelled")
+
+        # Agrupar los movimientos por concepto en la base de datos.
+        conceptos_data = list(
+            movimientos_validos
+            .values("concept__name")
+            .annotate(total=Sum("total"))
+            .order_by("concept__name")
+        )
+
+        # Formato esperado por la plantilla.
+        conceptos = [
+            {
+                "concepto": fila["concept__name"] or "Sin concepto",
+                "total": fila["total"] or Decimal("0.00"),
+            }
+            for fila in conceptos_data
+        ]
+
+        total_general = sum(
+            (item["total"] for item in conceptos),
+            Decimal("0.00"),
+        )
+
+        # Agrupar pagos por el código del método de pago.
+        pagos_agrupados = list(
+            payments_validos
+            .values("method")
+            .annotate(total=Sum("total"))
+            .order_by("method")
+        )
+
+        metodos = [
+            {
+                "metodo": dict(InvoicePayment.PAYMENT_METHODS).get(
+                    fila["method"],
+                    fila["method"] or "Desconocido",
+                ),
+                "total": fila["total"] or Decimal("0.00"),
+            }
+            for fila in pagos_agrupados
+        ]
+
+        total_metodos = sum(
+            (item["total"] for item in metodos),
+            Decimal("0.00"),
+        )
+
+        # Egresos también se filtran por fecha. Se incluye su total por si la
+        # plantilla necesita mostrarlo.
+        total_egresos = (
+            egresos.aggregate(total=Sum("total"))["total"]
+            or Decimal("0.00")
+        )
+
+        html_string = render_to_string(
+            "reports/caja/concept.html",
+            {
+                "cashbox": cashbox,
+                "user": user,
+                "conceptos": conceptos,
+                "total_general": total_general,
+                "total_metodos": total_metodos,
+                "reporte_tipo": reporte_tipo,
+                "metodos": metodos,
+                "total_egresos": total_egresos,
+                "report": cashbox,
+            },
+        )
+
+        pdf = HTML(string=html_string).write_pdf()
+
+        response = HttpResponse(pdf, content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'inline; filename="reporte_caja_{cashbox.id}.pdf"'
+        )
+        return response
+
+    @action(detail=True, methods=["get"])
+    def report(self, request, pk=None, **kwargs):
+        cashbox = self.get_object()
+        date_param = request.query_params.get("date")
+
+        # Recibe ?date=YYYY-MM-DD. Si falta, usa la fecha actual.
+        try:
+            fecha = (
+                datetime.strptime(date_param, "%Y-%m-%d").date()
+                if date_param
+                else localdate()
+            )
+        except ValueError:
+            return Response(
+                {"error": "Formato de fecha inválido (use YYYY-MM-DD)"},
+                status=400,
+            )
 
         PERIOD_CONCEPTS = {
             "price_water",
@@ -1188,163 +1337,320 @@ class CashBoxViewSet(TenantSafeMixin,viewsets.ModelViewSet):
             "price_fixed_charge",
         }
 
-        if start_date and end_date:
+        movimientos = (
+            cashbox.movements
+            .filter(created_at__date=fecha)
+            .select_related(
+                "concept",
+                "invoice_payment__invoice__customer",
+            )
+            .prefetch_related(
+                "invoice_payment__invoice__invoice_debts__debt",
+            )
+            .order_by("concept__name")
+        )
 
-            try:
-                start = datetime.strptime(start_date, "%Y-%m-%d").date()
-                end = datetime.strptime(end_date, "%Y-%m-%d").date()
-            except ValueError:
-                return Response({"error": "Formato de fecha inválido (use YYYY-MM-DD)"}, status=400)
-
-            movimientos = movimientos.filter(created_at__date__range=(start, end))
-            egresos = egresos.filter(created_at__date__range=(start, end))
-            reporte_tipo = f"Reporte entre {start} y {end}"
-
-        else:
-
-            if date_param:
-                try:
-                    fecha = datetime.strptime(date_param, "%Y-%m-%d").date()
-                except ValueError:
-                    return Response({"error": "Formato de fecha inválido (use YYYY-MM-DD)"}, status=400)
-            else:
-                fecha = localdate()
-
-            movimientos = movimientos.filter(created_at__date=fecha)
-            egresos = egresos.filter(created_at__date=fecha)
-            reporte_tipo = f"Reporte diario - {fecha}"
-
-        # ==========================
-        # AGRUPACIÓN POR CONCEPTO
-        # ==========================
+        # Agrupar movimientos por concepto y factura.
         conceptos_dict = defaultdict(list)
 
-        for mov in movimientos.select_related("concept", "invoice_payment__invoice__customer"):
-            concepto = mov.concept.name
-            conceptos_dict[concepto].append(mov)
+        for mov in movimientos:
+            nombre_concepto = (
+                mov.concept.name if mov.concept else "Sin concepto"
+            )
+            conceptos_dict[nombre_concepto].append(mov)
 
         conceptos_data = []
 
-        for concepto, movs in conceptos_dict.items():
+        for nombre_concepto, movs in conceptos_dict.items():
             facturas_dict = {}
 
-            for m in movs:
-                inv = m.invoice_payment.invoice if m.invoice_payment else None
+            for mov in movs:
+                invoice_payment = mov.invoice_payment
+                invoice = invoice_payment.invoice if invoice_payment else None
 
-                if not inv or inv.status == "cancelled":
-                    continue  # ignoramos facturas anuladas
+                if not invoice or invoice.status == "cancelled":
+                    continue
 
-                key = inv.id
-                if key not in facturas_dict:
-                    facturas_dict[key] = {
-                        "code": inv.code,
-                        "number_reference" : inv.number_reference,
-                        "date": inv.date,
-                        "cliente": inv.customer.full_name,
-                        "cliente_codigo": inv.customer.codigo,
-                        "direccion": inv.customer.address,
-                        "pagos": defaultdict(float),
-                        "total": 0,
-                        "periodo": "",  # 👈 string vacío por defecto
+                if invoice.id not in facturas_dict:
+                    customer = invoice.customer
+
+                    facturas_dict[invoice.id] = {
+                        "code": invoice.code or "",
+                        "number_reference": invoice.number_reference or "",
+                        "date": invoice.date,
+                        "cliente": customer.full_name if customer else "",
+                        "cliente_codigo": customer.codigo if customer else "",
+                        "direccion": customer.address if customer else "",
+                        "total": Decimal("0.00"),
+                        "periodo": "",
                     }
 
-                    # 📌 Solo calcular periodo si el concepto es 001, 002 o 003
-                    if m.concept.system_key in PERIOD_CONCEPTS:
-
-                        periodos = list(
-                            inv.invoice_debts.select_related("debt")
-                            .values_list("debt__period", flat=True)
+                    # Precargar y calcular períodos para los conceptos indicados.
+                    if (
+                        mov.concept
+                        and mov.concept.system_key in PERIOD_CONCEPTS
+                    ):
+                        periodos = sorted(
+                            deuda_factura.debt.period
+                            for deuda_factura in invoice.invoice_debts.all()
+                            if deuda_factura.debt
                         )
 
                         if periodos:
-                            periodos = sorted(periodos)
-                            if len(periodos) == 1:
-                                facturas_dict[key]["periodo"] = format_period(periodos[0])
-                            else:
-                                facturas_dict[key]["periodo"] = (
-                                    f"{format_period(periodos[0])} - {format_period(periodos[-1])}"
-                                )
+                            primer_periodo = format_period(periodos[0])
+                            ultimo_periodo = format_period(periodos[-1])
 
-                metodo = m.invoice_payment.method if m.invoice_payment else "Desconocido"
-                facturas_dict[key]["pagos"][metodo] += float(m.total)
-                facturas_dict[key]["total"] += float(m.total)
+                            facturas_dict[invoice.id]["periodo"] = (
+                                primer_periodo
+                                if len(periodos) == 1
+                                else f"{primer_periodo} - {ultimo_periodo}"
+                            )
 
-            # Convertir a lista
-            facturas_list = []
-            total_concepto = 0
+                facturas_dict[invoice.id]["total"] += Decimal(
+                    str(mov.total or 0)
+                )
 
-            facturas_ordenadas = sorted(
+            facturas = sorted(
                 facturas_dict.values(),
-                key=lambda x: x["code"]
+                key=lambda factura: factura["code"],
             )
 
-            for f in facturas_ordenadas:
-                total_concepto += f["total"]
-                f["pagos"] = dict(f["pagos"])
-                facturas_list.append(f)
+            if facturas:
+                total_concepto = sum(
+                    (factura["total"] for factura in facturas),
+                    Decimal("0.00"),
+                )
+                conceptos_data.append({
+                    "concepto": nombre_concepto,
+                    "facturas": facturas,
+                    "total": total_concepto,
+                })
 
-            conceptos_data.append({
-                "concepto": concepto,
-                "total": total_concepto,
-                "facturas": facturas_list,
-            })
+        total_general = sum(
+            (concepto["total"] for concepto in conceptos_data),
+            Decimal("0.00"),
+        )
 
-        total_general = sum(c["total"] for c in conceptos_data)
+        # Resumen de pagos por método para la misma fecha.
+        payments = (
+            cashbox.payments
+            .filter(created_at__date=fecha)
+            .exclude(invoice__status="cancelled")
+        )
 
-        # Agrupar por método de pago
-        metodo_data = []
+        totales_por_metodo = defaultdict(lambda: Decimal("0.00"))
 
-        payments = cashbox.payments.select_related("invoice")
-
-        if start_date and end_date:
-
-            payments = payments.filter(
-                created_at__date__range=(start, end)
+        for payment in payments:
+            totales_por_metodo[payment.method] += Decimal(
+                str(payment.total or 0)
             )
 
-        else:
+        nombres_metodos = dict(InvoicePayment.PAYMENT_METHODS)
 
-            payments = payments.filter(
-                created_at__date=fecha
+        metodos_data = [
+            {
+                "metodo": nombres_metodos.get(
+                    metodo,
+                    metodo or "Desconocido",
+                ),
+                "total": total,
+            }
+            for metodo, total in sorted(
+                totales_por_metodo.items(),
+                key=lambda item: str(item[0]),
             )
+        ]
 
-        metodo_dict = defaultdict(list)
+        total_metodos = sum(
+            (item["total"] for item in metodos_data),
+            Decimal("0.00"),
+        )
 
-        for pay in payments:
+        # Crear el Excel.
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Reporte diario"
 
-            if pay.invoice.status == "cancelled":
-                continue
+        title_fill = PatternFill("solid", fgColor="1F4E78")
+        section_fill = PatternFill("solid", fgColor="D9EAF7")
+        subtotal_fill = PatternFill("solid", fgColor="E2F0D9")
+        white_bold = Font(color="FFFFFF", bold=True)
+        bold = Font(bold=True)
 
-            metodo_dict[pay.method].append(pay)
+        # Cabecera del reporte.
+        sheet.append([f"Reporte diario - {fecha}"])
+        sheet["A1"].font = Font(size=16, bold=True, color="FFFFFF")
+        sheet["A1"].fill = title_fill
+        sheet.merge_cells("A1:F1")
 
-        for metodo, pays in metodo_dict.items():
+        sheet.append([f"Caja Nº {cashbox.id}"])
+        sheet.append([])
 
-            total_metodo = sum([p.total for p in pays])
-
-            metodo_data.append({
-                "metodo": dict(InvoicePayment.PAYMENT_METHODS).get(metodo, metodo),
-                "total": total_metodo,
-                "movimientos": pays
-            })
-
-        total_metodos = sum([
-            m["total"] for m in metodo_data
+        # Detalle agrupado por concepto.
+        sheet.append([
+            "Concepto",
+            "Código factura",
+            "Referencia",
+            "Fecha",
+            "Código cliente",
+            "Cliente",
+            "Dirección",
+            "Período(s)",
+            "Total",
         ])
 
-        html_string = render_to_string("reports/caja/daily.html", {
-            "cashbox": cashbox,
-            "user" : user,
-            "conceptos": conceptos_data,
-            "total_general": total_general,
-            "total_metodos": total_metodos,
-            "reporte_tipo": reporte_tipo,
-            "metodos": metodo_data,
-            "report": cashbox,
-        })
+        header_row = sheet.max_row
+        for cell in sheet[header_row]:
+            cell.font = white_bold
+            cell.fill = title_fill
+            cell.alignment = Alignment(horizontal="center")
 
-        pdf = HTML(string=html_string).write_pdf()
-        response = HttpResponse(pdf, content_type="application/pdf")
-        response["Content-Disposition"] = f'filename="reporte_caja_{cashbox.id}.pdf"'
+        for concepto in conceptos_data:
+            sheet.append([concepto["concepto"]])
+            section_row = sheet.max_row
+            sheet.cell(section_row, 1).font = bold
+            sheet.cell(section_row, 1).fill = section_fill
+            sheet.merge_cells(
+                start_row=section_row,
+                start_column=1,
+                end_row=section_row,
+                end_column=9,
+            )
+
+            for factura in concepto["facturas"]:
+                sheet.append([
+                    concepto["concepto"],
+                    factura["code"],
+                    factura["number_reference"],
+                    factura["date"],
+                    factura["cliente_codigo"],
+                    factura["cliente"],
+                    factura["direccion"],
+                    factura["periodo"] or "-",
+                    float(factura["total"]),
+                ])
+
+                # Mostrar fechas como fechas de Excel y totales como números.
+                sheet.cell(sheet.max_row, 4).number_format = "dd/mm/yyyy"
+                sheet.cell(sheet.max_row, 9).number_format = '"S/ " #,##0.00'
+
+            sheet.append([
+                f"Subtotal {concepto['concepto']}",
+                None, None, None, None, None, None, None,
+                float(concepto["total"]),
+            ])
+            subtotal_row = sheet.max_row
+
+            for cell in sheet[subtotal_row]:
+                cell.font = bold
+                cell.fill = subtotal_fill
+
+            sheet.cell(subtotal_row, 9).number_format = '"S/ " #,##0.00'
+
+        sheet.append([
+            "TOTAL GENERAL",
+            None, None, None, None, None, None, None,
+            float(total_general),
+        ])
+        total_row = sheet.max_row
+
+        for cell in sheet[total_row]:
+            cell.font = bold
+            cell.fill = title_fill
+            cell.font = white_bold
+
+        sheet.cell(total_row, 9).number_format = '"S/ " #,##0.00'
+
+        # Resumen por método de pago.
+        sheet.append([])
+        sheet.append(["Resumen por método de pago"])
+        methods_title_row = sheet.max_row
+        sheet.cell(methods_title_row, 1).font = bold
+        sheet.cell(methods_title_row, 1).fill = section_fill
+        sheet.merge_cells(
+            start_row=methods_title_row,
+            start_column=1,
+            end_row=methods_title_row,
+            end_column=2,
+        )
+
+        sheet.append(["Método", "Total"])
+        methods_header_row = sheet.max_row
+        for cell in sheet[methods_header_row]:
+            cell.font = white_bold
+            cell.fill = title_fill
+
+        for metodo in metodos_data:
+            sheet.append([metodo["metodo"], float(metodo["total"])])
+            sheet.cell(sheet.max_row, 2).number_format = '"S/ " #,##0.00'
+
+        sheet.append(["Total por métodos de pago", float(total_metodos)])
+        methods_total_row = sheet.max_row
+        for cell in sheet[methods_total_row]:
+            cell.font = bold
+            cell.fill = subtotal_fill
+        sheet.cell(methods_total_row, 2).number_format = '"S/ " #,##0.00'
+
+        # Datos de la caja.
+        sheet.append([])
+        sheet.append(["Resumen de caja"])
+
+        cash_title_row = sheet.max_row
+        sheet.cell(cash_title_row, 1).font = bold
+        sheet.cell(cash_title_row, 1).fill = section_fill
+        sheet.merge_cells(
+            start_row=cash_title_row,
+            start_column=1,
+            end_row=cash_title_row,
+            end_column=2,
+        )
+
+        sheet.append([
+            "Saldo inicial",
+            float(cashbox.opening_balance or 0),
+        ])
+        sheet.append([
+            "Saldo final",
+            float(cashbox.closing_balance or 0),
+        ])
+
+        for row in range(cash_title_row + 1, sheet.max_row + 1):
+            sheet.cell(row, 2).number_format = '"S/ " #,##0.00'
+
+        # Formato general y anchos de columna.
+        widths = {
+            1: 28,
+            2: 18,
+            3: 18,
+            4: 14,
+            5: 16,
+            6: 32,
+            7: 36,
+            8: 24,
+            9: 16,
+        }
+
+        for column, width in widths.items():
+            sheet.column_dimensions[get_column_letter(column)].width = width
+
+        sheet.freeze_panes = "A5"
+        sheet.auto_filter.ref = f"A4:I{header_row if header_row > 4 else sheet.max_row}"
+
+        # Descargar el libro como archivo Excel.
+        output = io.BytesIO()
+        workbook.save(output)
+        output.seek(0)
+
+        response = HttpResponse(
+            output.getvalue(),
+            content_type=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+        )
+        response["Content-Disposition"] = (
+            f'attachment; filename="reporte_caja_{cashbox.id}_{fecha}.xlsx"'
+        )
         return response
 
 class DailyCashReportViewSet(TenantSafeMixin,viewsets.ModelViewSet):

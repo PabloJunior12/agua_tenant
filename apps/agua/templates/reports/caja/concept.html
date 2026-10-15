@@ -1,0 +1,274 @@
+<style>
+    .finance-report {
+        font-family: "Segoe UI", Arial, sans-serif;
+        color: #1e293b;
+        font-size: 13px;
+        line-height: 1.5;
+    }
+
+    .report-header {
+        background: #172554;
+        color: #ffffff;
+        padding: 24px 28px;
+        border-radius: 12px;
+        margin-bottom: 24px;
+    }
+
+    .report-header h2 {
+        font-size: 23px;
+        font-weight: 700;
+        margin: 0 0 6px;
+        color: #ffffff;
+    }
+
+    .report-header p {
+        color: #cbd5e1;
+        margin: 0;
+        font-size: 12px;
+    }
+
+    .summary-grid {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 28px;
+    }
+
+    .summary-card {
+        flex: 1;
+        min-width: 0;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 18px 20px;
+    }
+
+    .summary-label {
+        color: #64748b;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .6px;
+        margin-bottom: 8px;
+    }
+
+    .summary-value {
+        color: #0f172a;
+        font-size: 22px;
+        font-weight: 700;
+        overflow-wrap: anywhere;
+    }
+
+    .section-title {
+        font-size: 15px;
+        font-weight: 700;
+        color: #0f172a;
+        margin: 26px 0 12px;
+        padding-left: 11px;
+        border-left: 4px solid #2563eb;
+    }
+
+    .table-wrapper {
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        overflow: hidden;
+        margin-bottom: 26px;
+    }
+
+    .finance-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #ffffff;
+    }
+
+    .finance-table thead th {
+        background: #f1f5f9;
+        color: #475569;
+        text-align: left;
+        padding: 13px 16px;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .4px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .finance-table tbody td {
+        padding: 13px 16px;
+        border-bottom: 1px solid #f1f5f9;
+        color: #334155;
+    }
+
+    .finance-table tbody tr:last-child td {
+        border-bottom: none;
+    }
+
+    .finance-table tbody tr:nth-child(even) {
+        background: #fafcff;
+    }
+
+    .finance-table .amount {
+        text-align: right;
+        white-space: nowrap;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .finance-table tfoot th {
+        background: #eff6ff;
+        color: #1d4ed8;
+        padding: 15px 16px;
+        border-top: 2px solid #bfdbfe;
+        font-size: 13px;
+    }
+
+    .finance-table tfoot th:first-child {
+        text-align: left;
+    }
+
+    .finance-table tfoot th:last-child {
+        text-align: right;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 24px !important;
+        color: #94a3b8 !important;
+        font-style: italic;
+    }
+
+    .report-footer {
+        border-top: 1px solid #e2e8f0;
+        padding-top: 14px;
+        margin-top: 30px;
+        color: #94a3b8;
+        font-size: 11px;
+        text-align: center;
+    }
+
+    @media (max-width: 600px) {
+        .summary-grid {
+            flex-direction: column;
+        }
+
+        .report-header {
+            padding: 20px;
+        }
+    }
+
+    @media print {
+        .finance-report {
+            font-size: 11px;
+        }
+
+        .report-header,
+        .finance-table thead th,
+        .finance-table tfoot th {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        .table-wrapper {
+            overflow: visible;
+        }
+
+        .finance-table tr {
+            break-inside: avoid;
+        }
+    }
+</style>
+
+<div class="finance-report">
+
+    <!-- Encabezado -->
+    <div class="report-header">
+        <h2>{{ reporte_tipo }}</h2>
+        <p>Reporte financiero · Resumen de movimientos y recaudación</p>
+    </div>
+
+
+
+    <!-- Totales por concepto -->
+    <h3 class="section-title">Totales por concepto</h3>
+
+    <div class="table-wrapper">
+        <table class="finance-table">
+            <thead>
+                <tr>
+                    <th>Concepto financiero</th>
+                    <th style="text-align: right;">Importe (S/)</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for item in conceptos %}
+                <tr>
+                    <td>{{ item.concepto }}</td>
+                    <td class="amount">
+                        {{ item.total|floatformat:2 }}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="2" class="empty-state">
+                        No hay movimientos registrados para este periodo.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+
+            <tfoot>
+                <tr>
+                    <th>Total general</th>
+                    <th>S/ {{ total_general|floatformat:2 }}</th>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+
+    <!-- Totales por método de pago -->
+    <h3 class="section-title">Totales por método de pago</h3>
+
+    <div class="table-wrapper">
+        <table class="finance-table">
+            <thead>
+                <tr>
+                    <th>Método de pago</th>
+                    <th style="text-align: right;">Importe (S/)</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for item in metodos %}
+                <tr>
+                    <td>{{ item.metodo }}</td>
+                    <td class="amount">
+                        {{ item.total|floatformat:2 }}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="2" class="empty-state">
+                        No hay pagos registrados para este periodo.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+
+            <tfoot>
+                <tr>
+                    <th>Total por métodos de pago</th>
+                    <th>S/ {{ total_metodos|floatformat:2 }}</th>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+
+    <!-- Pie del reporte -->
+    <div class="report-footer">
+        Informe financiero generado por el sistema.
+        Los importes se expresan en soles peruanos (PEN).
+    </div>
+
+</div>
