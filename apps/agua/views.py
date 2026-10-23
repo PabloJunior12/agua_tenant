@@ -4535,6 +4535,8 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         debt = self.get_object()
 
+        return
+
         # Validar factura activa SOLO si la deuda actualmente está pagada
         if debt.paid:
             invoice_link = debt.invoice_links.filter(
