@@ -1,6 +1,7 @@
 from decimal import Decimal
 from datetime import  date
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, connection
 from django.utils.timezone import now
@@ -968,6 +969,16 @@ class Debt(models.Model):
     is_refinanced = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     reading = models.OneToOneField("Reading", on_delete=models.SET_NULL, null=True, blank=True, related_name="debt")
+    motive = models.TextField(null=True, blank=True)
+
+    # Usuario que registró el pago manualmente desde toggle_paid
+    paid_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="debts_marked_paid",
+    )
 
     class Meta:
         ordering = ['-period']

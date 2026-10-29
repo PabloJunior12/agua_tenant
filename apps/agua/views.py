@@ -4530,14 +4530,12 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
 
         })
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=["post"])
     def toggle_paid(self, request, pk=None):
 
         debt = self.get_object()
 
-        return
-
-        # Validar factura activa SOLO si la deuda actualmente está pagada
+        # Si actualmente está pagada, se intentará anular el pago.
         if debt.paid:
             invoice_link = debt.invoice_links.filter(
                 invoice__status="active"
@@ -4547,19 +4545,46 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
                 return Response(
                     {
                         "error": (
-                            f"No se puede modificar el estado de pago porque la deuda "
-                            f"pertenece a la factura {invoice_link.invoice.code}. "
+                            "No se puede modificar el estado de pago porque "
+                            f"la deuda pertenece a la factura "
+                            f"{invoice_link.invoice.code}. "
                             "Primero debe anular la factura."
-                        ),
+                        )
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        # Cambiar solo paid
-        debt.paid = not debt.paid
-        debt.save(update_fields=["paid"])
+            debt.motive = None
+            debt.paid = False
+            debt.paid_by = None
 
-        # Sin recalcular nada
+            debt.save(update_fields=["paid", "paid_by"])
+
+        else:
+            # Para marcar la deuda como pagada, el motivo es obligatorio.
+            motive = request.data.get("motive", "").strip()
+
+            if not motive:
+                return Response(
+                    {
+                        "error": "Debe indicar el motivo por el cual se realiza el pago."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            debt.paid = True
+            debt.motive = motive
+
+            # Guardar el usuario solo si está autenticado.
+            debt.paid_by = (
+                request.user
+                if request.user and request.user.is_authenticated
+                else None
+            )
+
+            debt.save(update_fields=["paid", "motive", "paid_by"])
+
+        # Sin recalcular importes ni otros valores.
         if debt.reading:
             debt.reading.paid = debt.paid
             debt.reading.save(
@@ -4570,6 +4595,8 @@ class DebtViewSet(TenantSafeMixin,viewsets.ModelViewSet):
         return Response({
             "success": True,
             "paid": debt.paid,
+            "motive": debt.motive,
+            "paid_by": debt.paid_by_id,
         })
 
     @action(detail=False, methods=["GET"])
