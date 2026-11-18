@@ -4841,7 +4841,7 @@ class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
         company = Company.objects.first()
 
-        # Obtener tipo de facturación
+        # Obtener tipo de facturacion
         billing_type = invoice.customer.billing_type
 
         if request.tenant.schema_name == "chilca":
