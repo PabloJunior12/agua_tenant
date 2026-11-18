@@ -4827,47 +4827,91 @@ class InvoiceViewSet(TenantSafeMixin, viewsets.ModelViewSet):
 
         invoice = get_object_or_404(Invoice, id=pk)
 
-        # Usamos la relación inversa para evitar consultas innecesarias
-        payments_debts = invoice.invoice_debts.select_related('debt').order_by('debt__period')
-        payments_concepts = invoice.invoice_concepts.select_related('concept').order_by('concept__code')
-        payments_installments = invoice.invoice_installments.select_related('installment__refinancing').order_by('installment__number')
+        payments_debts = invoice.invoice_debts.select_related(
+            'debt'
+        ).order_by('debt__period')
+
+        payments_concepts = invoice.invoice_concepts.select_related(
+            'concept'
+        ).order_by('concept__code')
+
+        payments_installments = invoice.invoice_installments.select_related(
+            'installment__refinancing'
+        ).order_by('installment__number')
 
         company = Company.objects.first()
 
+        # Obtener tipo de facturación
+        billing_type = invoice.customer.billing_type
 
-        # Ruta al logo según el RUC
+        if request.tenant.schema_name == "chilca":
+
+            billing_labels = {
+                'both': 'Serv. Agua y Desagüe',
+                'water': 'Serv. Agua',
+                'sewer': 'Serv. Desagüe',
+            }
+
+            service_label = billing_labels.get(
+                billing_type,
+                'Servicio'
+            )
+
+        else:
+            
+            service_label = 'Pago de Consumo'
+
         logo_path = None
-        if company and company.ruc:
-            logo_path = request.build_absolute_uri(f"/media/{company.ruc}.jpeg")
 
+        if company and company.ruc:
+            logo_path = request.build_absolute_uri(
+                f"/media/{company.ruc}.jpeg"
+            )
 
         context = {
             "invoice": invoice,
             "customer": invoice.customer,
             "concepts": payments_concepts,
             "payments": payments_debts,
-            "installments": payments_installments,  # 👈 NUEVO
-            "total_paid": sum((p.total for p in payments_debts), 0),
-            "total_paid_concept": sum((p.total for p in payments_concepts), 0),
-            # "total_paid_installments": sum((p.total for p in payments_installments), 0),  # 👈 opcional
+            "installments": payments_installments,
+
+            "service_label": service_label,
+
+            "total_paid": sum(
+                (p.total for p in payments_debts), 0
+            ),
+            "total_paid_concept": sum(
+                (p.total for p in payments_concepts), 0
+            ),
+
             "company_name": company.name if company else "",
             "company_ruc": company.ruc if company else "",
             "company_logo": logo_path,
         }
-        
+
         template = get_template('agua/invoice.html')
         html_string = template.render(context)
 
         pdf_buffer = io.BytesIO()
-   
-        HTML(string=html_string, base_url=request.build_absolute_uri()).write_pdf(
-            pdf_buffer
-        )
+
+        HTML(
+            string=html_string,
+            base_url=request.build_absolute_uri()
+        ).write_pdf(pdf_buffer)
 
         file_name = f"ticket_{invoice.id}.pdf"
+
         pdf_buffer.seek(0)
-        response = HttpResponse(pdf_buffer.read(), content_type="application/pdf")
-        response["Content-Disposition"] = f'inline; filename="{file_name}"'
+
+        response = HttpResponse(
+            pdf_buffer.read(),
+            content_type="application/pdf"
+        )
+
+        response["Content-Disposition"] = (
+            f'inline; filename="{file_name}"'
+        )
+
         return response
 
     @action(detail=True, methods=['get'], url_path='ticket-a5')
